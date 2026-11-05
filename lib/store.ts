@@ -29,3 +29,14 @@ const changed=await env.DB!.prepare("SELECT id FROM articles WHERE updated_at > 
 result.articleIds=(changed.results??[]).map(a=>a.id);
 const coverage=reconcileMonitorCoverage(result.status,result.checkedSources,result.gaps,monitorConfig.coveragePolicy.requiredSources);Object.assign(result,coverage);
 await env.DB!.prepare("INSERT INTO monitor_runs(id,payload,completed_at) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,completed_at=excluded.completed_at").bind(result.id,JSON.stringify(result),result.completedAt).run();return {ok:true,run:result};}
+
+
+// Persistent, non-article handshake for validating a new automation connection.
+export async function verifyMonitorConnection(origin:string){
+ const id="runtime:monitor-connection-check",nonce=crypto.randomUUID(),verifiedAt=new Date().toISOString();
+ const payload=JSON.stringify({origin,nonce,verifiedAt});
+ await env.DB!.prepare("INSERT INTO monitor_source_state(id,payload,updated_at) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at").bind(id,payload,verifiedAt).run();
+ const row=await env.DB!.prepare("SELECT payload FROM monitor_source_state WHERE id=?").bind(id).first<{payload:string}>();
+ if(!row||JSON.parse(row.payload).nonce!==nonce)throw new Error("连接检查未完成持久读回，请重试。");
+ return {writeVerified:true,readbackVerified:true,site:origin,verifiedAt,articlesChanged:0};
+}

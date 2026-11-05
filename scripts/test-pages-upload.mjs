@@ -14,7 +14,7 @@ vm.runInNewContext(js,{document:{getElementById:element},crypto,TextEncoder,Uint
 await element('form').submit({preventDefault(){}});assert.equal(element('error').textContent,'');
 const adminSql=element('sql').value;assert(adminSql.includes('WHERE NOT EXISTS'));assert(!adminSql.includes(password));assert.equal(element('password').value,'');
 
-const mf=new Miniflare({modules:[{type:'ESModule',path:path.resolve('pages-upload/_worker.js')}],compatibilityDate:'2026-05-15',compatibilityFlags:['nodejs_compat'],d1Databases:['DB'],bindings:{MONITOR_API_TOKEN:'test-only-monitor-credential-0123456789abcdef'},assets:{directory:'pages-upload',binding:'ASSETS',routerConfig:{invoke_user_worker_ahead_of_assets:true,has_user_worker:true}}});
+const mf=new Miniflare({modules:[{type:'ESModule',path:path.resolve('pages-upload/_worker.js')}],compatibilityDate:'2026-05-15',compatibilityFlags:JSON.parse(fs.readFileSync('wrangler.jsonc','utf8')).compatibility_flags,d1Databases:['DB'],bindings:{MONITOR_API_TOKEN:'test-only-monitor-credential-0123456789abcdef'},assets:{directory:'pages-upload',binding:'ASSETS',routerConfig:{invoke_user_worker_ahead_of_assets:true,has_user_worker:true}}});
 const origin='https://workbench.test';
 async function request(route,options={}){return mf.dispatchFetch(origin+route,options);}
 async function post(body,cookie='',extra={}){return request('/api/workspace',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json',...(cookie?{cookie}:{}),...extra},body:JSON.stringify(body)});}

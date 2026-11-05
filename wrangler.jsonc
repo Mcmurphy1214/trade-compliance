@@ -3,8 +3,9 @@
   "name": "trade-compliance",
   "main": "worker/index.ts",
   "compatibility_date": "2026-05-15",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "workers_dev": true,
+  "kv_namespaces": [{"binding":"OAUTH_KV"}],
   "d1_databases": [{
     "binding": "DB",
     "database_name": "trade-compliance-workbench",

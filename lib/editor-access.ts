@@ -1,8 +1,11 @@
 import {env} from "cloudflare:workers";
 import {isAllowedWriteOrigin} from "./editor-policy";
 import {workspaceActor,constantEqual,digest} from "./workspace-auth";
+import {monitorIdentity} from "./monitor-context";
 
 export async function editorAccess(request:Request){
+ const oauth=monitorIdentity();
+ if(new URL(request.url).pathname==="/mcp"&&oauth)return {signedIn:true,canEdit:oauth.scope.includes("monitor:write")};
  const actor=await workspaceActor(request);
  if(actor)return {signedIn:true,canEdit:actor.role==="admin"&&!actor.mustChangePassword};
  // Optional least-scope automation credential, only for the MCP endpoint.

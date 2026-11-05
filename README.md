@@ -18,7 +18,7 @@
 
 ## 不会自动迁移的服务
 
-每日采集、09:30 简报生成、10:00 邮件发送并未在本部署包中启用。它们需要新站另行配置定时执行器、信源访问方式及邮件服务凭据。配置监测令牌也不等于任务已运行或邮件已送达。
+新站日更要求为每天北京时间09:00。已提供 ChatGPT OAuth 授权能力，但任务须在管理员初始化、平台连接和持久写入校验后才能启用；代码部署不等于任务启用。邮件发送尚未启用。操作步骤见 [管理员与ChatGPT授权](deployment-tools/管理员与ChatGPT授权.md)。
 
 ## 后续修改源码（可选）
 
@@ -31,6 +31,7 @@ npm test
 npm run build
 npm run build:upload
 npm run test:workers
+npm run test:oauth
 npm run test:pages
 ```
 

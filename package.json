@@ -20,10 +20,12 @@
     "cf:configure": "node scripts/configure-cloudflare.mjs",
     "build:upload": "node scripts/build-pages-upload.mjs",
     "test:workers": "node scripts/test-workers-deployment.mjs",
-    "test:pages": "node scripts/test-pages-upload.mjs"
+    "test:pages": "node scripts/test-pages-upload.mjs",
+    "test:oauth": "node scripts/test-monitor-oauth.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
+    "@cloudflare/workers-oauth-provider": "1.2.4",
     "@hookform/resolvers": "^5.7.1",
     "@pdf-lib/fontkit": "^1.1.1",
     "@shadcn/react": "^0.3.0",

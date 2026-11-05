@@ -44,7 +44,7 @@ CI 自动创建的资源 ID 保存在 Cloudflare 控制台，不会自动写回 
 
 仅在你明确创建的是 Pages 项目时使用：框架预设 None，生产分支 main，构建命令 `npm run build && npm run build:upload`，输出目录 `pages-upload`，环境变量 `NODE_VERSION=24`。
 
-在 Pages 控制台设置 compatibility date 为 2026-05-15、flag 为 nodejs_compat；创建/选中独立 D1，并手动绑定变量名 DB。Pages 的发布流程不通过上述 Workers 部署命令自动创建 D1。绑定后新部署才会生效；表结构由新版本首次请求初始化，管理员步骤同上。源码保留数据库初始化.sql，可用于离线检查与手动补建。
+在 Pages 控制台设置 compatibility date 为 2026-05-15、flag 为 nodejs_compat；创建/选中独立 D1，并手动绑定变量名 DB。Pages 的发布流程不通过上述 Workers 部署命令自动创建 D1。绑定后新部署才会生效；表结构由新版本首次请求初始化，管理员步骤同上。源码保留数据库初始化.sql，可用于离线检查与手动补建。Pages 如需 OAuth，还须手动绑定 OAUTH_KV 并添加 global_fetch_strictly_public 兼容标志；Workers 的资源自动创建不适用于 Pages 发布。
 
 已有 Pages 直接上传项目与 Git 集成项目是不同创建路径；请按 Cloudflare 当前支持方式处理，勿覆盖原公开资讯网站。ZIP 拖拽流程另见先读我_Cloudflare拖拽部署.md。
 
@@ -52,7 +52,7 @@ CI 自动创建的资源 ID 保存在 Cloudflare 控制台，不会自动写回 
 
 所有访客可浏览资讯和法律法规监测；团队选题、成员、备注、规则、日志及导出需要独立账号和角色权限。未登录不能加入选题池，也不能下载团队快照。
 
-仓库只含已有 56 条公开资讯快照，不含旧站口令、内部选题或邮箱连接。原站与新站数据库、地址、更新机制独立。每日采集、09:30 简报和 10:00 邮件没有随源码启用；MONITOR_API_TOKEN 只控制监测接口，不代表已有定时执行器。
+仓库只含已有 56 条公开资讯快照，不含旧站口令、内部选题或邮箱连接。原站与新站数据库、地址、更新机制独立。新站每日09:00更新任务只在授权及写入验收后启用，邮件尚未启用。ChatGPT 自定义连接使用 OAuth，另见管理员与ChatGPT授权.md；MONITOR_API_TOKEN 仅保留给已有的命令行集成。部署配置还会自动创建 OAUTH_KV，用来存放加密/哈希后的授权状态，不含明文密码。
 
 向 main 推送代码会触发 Git 集成构建；日常资讯写入仍走新站数据库，不需要每次改代码或重新部署。
 

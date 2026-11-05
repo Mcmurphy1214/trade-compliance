@@ -1,5 +1,6 @@
 import handler from "vinext/server/fetch-handler";
 import {ensureDatabase} from "../lib/database-setup";
+import {createMonitorOAuth} from "./monitor-oauth";
 
 const setupPage='<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>工作台数据库配置</title><body style="font-family:system-ui;padding:40px;line-height:1.8"><h1>数据库尚未就绪</h1><p>请检查 Cloudflare 中名为 DB 的 D1 绑定及数据库访问权限，然后重试。详细步骤见仓库 deployment-tools 中的部署说明。</p></body></html>';
 const noStore={"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"};
@@ -10,7 +11,7 @@ function unavailable(request:Request,database:string){
 }
 
 // Independent hosting: client-supplied Sites identity headers grant no privileges.
-export default {
+const app = {
   async fetch(request:Request, env:Cloudflare.Env, ctx:ExecutionContext){
     if(!env.DB)return unavailable(request,"missing");
     try{await ensureDatabase(env.DB);}catch(error){
@@ -20,7 +21,7 @@ export default {
     if(new URL(request.url).pathname==='/api/deployment-health'){
       try{
         const row=await env.DB.prepare('SELECT COUNT(*) AS count FROM workspace_users').first<{count:number}>();
-        return Response.json({ready:true,database:"ready",adminInitialized:Number(row?.count)>0,monitorApiConfigured:!!env.MONITOR_API_TOKEN,schedulesConfigured:false},{headers:noStore});
+        return Response.json({ready:true,database:"ready",adminInitialized:Number(row?.count)>0,monitorApiConfigured:!!env.MONITOR_API_TOKEN||!!env.OAUTH_KV,oauthConfigured:!!env.OAUTH_KV,schedulesConfigured:false},{headers:noStore});
       }catch{return unavailable(request,"unavailable");}
     }
     const headers=new Headers(request.headers);
@@ -28,3 +29,4 @@ export default {
     return handler.fetch(new Request(request,{headers}),env,ctx);
   }
 };
+export default createMonitorOAuth(app);
