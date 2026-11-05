@@ -19,7 +19,11 @@ const origin='https://workbench.test';
 async function request(route,options={}){return mf.dispatchFetch(origin+route,options);}
 async function post(body,cookie='',extra={}){return request('/api/workspace',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json',...(cookie?{cookie}:{}),...extra},body:JSON.stringify(body)});}
 try{
- const early=await request('/api/deployment-health');assert.equal(early.status,503);assert.equal((await early.json()).database,'schema_missing');
+ const early=await request('/api/deployment-health');assert.equal(early.status,200);const firstHealth=await early.json();assert.equal(firstHealth.database,'ready');assert.equal(firstHealth.adminInitialized,false);assert.equal(firstHealth.schedulesConfigured,false);
+ // A newly provisioned, empty D1 must serve public news before any manual SQL.
+ const anonymousFeed=await request('/api/feed');assert.equal(anonymousFeed.status,200);assert.equal((await anonymousFeed.json()).articles.length,56);
+ const anonymousState=await(await request('/api/workspace')).json();assert.equal(anonymousState.user,null);for(const key of ['pool','rules','activity','members'])assert.deepEqual(anonymousState[key],[]);
+ assert.equal((await post({action:'follow',articleId:'anonymous-test',version:0})).status,401);
  const db=await mf.getD1Database('DB'),schema=fs.readFileSync('deployment-tools/数据库初始化.sql','utf8').replace(/^\s*--.*$/gm,'');
  for(const statement of schema.split(';').map(s=>s.trim()).filter(Boolean))await db.prepare(statement).run();
  for(const statement of schema.split(';').map(s=>s.trim()).filter(Boolean))await db.prepare(statement).run(); // safe repeated schema setup
@@ -44,5 +48,5 @@ try{
  const asset=markup.match(/src="(\/_next\/[^\"]+\.js)"/)[1];const script=await request(asset);assert.equal(script.status,200);assert((await script.text()).length>0);
  const font=await request('/fonts/NotoSansSC-Regular.ttf');assert.equal(font.status,200);await font.body.cancel();
  health=await(await request('/api/deployment-health')).json();assert.equal(health.adminInitialized,true);
- console.log('PASS Pages upload: exact single-file Worker, SSR and assets; D1 schema and repeated safe setup; offline password hashing; first-password gate; forged-header rejection; admin permissions; CSRF; immutable exports with exact six Excel columns; MCP scope; 56 migrated articles; no migrated schedules.');
+ console.log('PASS Pages upload: exact single-file Worker, SSR and assets; empty-D1 automatic initialization; anonymous news and protected team selection; repeated safe schema setup; offline password hashing; first-password gate; forged-header rejection; admin permissions; CSRF; immutable exports with exact six Excel columns; MCP scope; 56 migrated articles; no migrated schedules.');
 }finally{await mf.dispose();}

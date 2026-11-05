@@ -13,7 +13,7 @@ if(local===remote)throw Error('必须明确选择 --local 或 --remote。');
 if(!process.stdin.isTTY)throw Error('请在交互终端运行，以安全输入管理员密码。');
 const root=fileURLToPath(new URL('../',import.meta.url)),wrangler=fileURLToPath(new URL('../node_modules/wrangler/bin/wrangler.js',import.meta.url));
 const config=JSON.parse(readFileSync(join(root,'wrangler.jsonc'),'utf8'));
-if(remote&&/^00000000-/.test(config.d1_databases[0].database_id))throw Error('请先填写真实 D1 database_id。');
+if(remote&&(!config.d1_databases[0].database_id||/^00000000-/.test(config.d1_databases[0].database_id)))throw Error('CLI 远程初始化请先用 cf:configure 填写真实 D1 database_id；也可用离线 HTML 工具在 D1 Console 初始化。自动部署无需填写 UUID。');
 function execute(options){
  const result=spawnSync(process.execPath,[wrangler,'d1','execute','DB',local?'--local':'--remote','--json','--yes',...options],{cwd:root,encoding:'utf8',stdio:['inherit','pipe','pipe']});
  if(result.status!==0)throw Error('数据库命令失败。请检查 Cloudflare 登录、D1 配置和迁移状态；不会保存密码。');

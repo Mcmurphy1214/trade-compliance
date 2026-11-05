@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {DatabaseSync} from 'node:sqlite';
+import {build} from 'esbuild';
+
+const statements=JSON.parse(fs.readFileSync('lib/database-schema.json','utf8'));
+const fromSql=fs.readFileSync('deployment-tools/数据库初始化.sql','utf8').replace(/--[^\n]*/g,'').split(';').map(s=>s.trim()).filter(Boolean).map(s=>s+';');
+assert.deepEqual(statements,fromSql,'Runtime bootstrap must match the offline SQL schema');
+const source=await build({entryPoints:['lib/database-setup.ts'],bundle:true,platform:'node',format:'esm',write:false});
+const {ensureDatabase}=await import('data:text/javascript;base64,'+Buffer.from(source.outputFiles[0].text).toString('base64'));
+const sql=new DatabaseSync(':memory:');let batches=0,fail=false;
+const binding=()=>({prepare(text){return {text};},async batch(rows){batches++;if(fail){fail=false;throw Error('temporary database failure');}return rows.map(({text})=>{sql.prepare(text).run();return {success:true};});}});
+const db=binding();
+await Promise.all([ensureDatabase(db),ensureDatabase(db)]);
+sql.prepare("INSERT INTO workspace_pool(article_id,note,last_mutation,created_at,updated_at) VALUES('keep','internal note','initial','now','now')").run();
+const before=batches;await ensureDatabase(db);assert.equal(batches,before,'Warm requests must skip schema writes');
+await ensureDatabase(binding());assert.equal(sql.prepare("SELECT note FROM workspace_pool WHERE article_id='keep'").get().note,'internal note','Fresh isolates must preserve existing data');
+const retry=binding();fail=true;await assert.rejects(ensureDatabase(retry),/temporary/);await ensureDatabase(retry);
+const bad={prepare(text){return {text};},async batch(){return [{success:false}];}};await assert.rejects(ensureDatabase(bad),/initialization failed/);
+sql.close();console.log('PASS database bootstrap: SQL parity, empty schema, concurrent cold requests, warm cache, existing data preserved, transient failure retry, explicit failure propagation.');

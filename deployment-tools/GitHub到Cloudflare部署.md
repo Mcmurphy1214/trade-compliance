@@ -1,48 +1,81 @@
-# 从 GitHub 部署到 Cloudflare Pages
+# 从 GitHub 部署到 Cloudflare
 
-## 仓库内容与权限边界
+## 先确认你使用的是 Workers 还是 Pages
 
-本目录就是仓库根目录：package.json、package-lock.json、app、components、lib、db、drizzle、worker、public、scripts 和 deployment-tools 同级。请上传展开后的源码文件，不要只上传一个源码 ZIP。
+2026-11-05 的失败日志执行了 `npm run build` 与 `npx wrangler deploy`，因此这是 **Workers Builds**，不是 Pages。日志里的 Vite 编译已成功，报错来自部署阶段：D1 的 database_id 仍是占位 UUID，导致 Cloudflare 返回 10181；Worker 名称也与控制台项目不一致。
 
-独立部署后，所有访客可浏览资讯列表、正文和法律法规监测；加入团队选题池、内部备注、规则、日志与导出需要管理员发放的独立账号和相应角色。账号不需要 GPT 账户。
+仓库已经按当前 Workers 项目修复。不要继续把 Pages 的输出目录设置套用到 Workers。
 
-源码仅含 56 条已有公开资讯快照，不包含旧站账号、口令、内部选题、会话、邮箱授权或数据库副本。定时采集和邮件服务没有启用，不会因为连接 GitHub 自动迁移。
+## A. 当前项目：Workers + GitHub（推荐继续使用）
 
-## Cloudflare Pages 配置
+| 设置 | 内容 |
+| --- | --- |
+| GitHub 仓库 | Mcmurphy1214/trade-compliance |
+| 生产分支 | main |
+| Worker 名称 | trade-compliance |
+| 根目录 | 仓库根目录 |
+| 构建命令 | npm run build |
+| 部署命令 | npx wrangler deploy |
+| Node 版本 | 24（.nvmrc 已提供） |
+| D1 绑定名 | DB |
+| 默认 D1 名称 | trade-compliance-workbench |
 
-1. 在 Cloudflare 的 Workers & Pages 创建 Pages 项目，选择 Connect to Git（连接 Git），授权并选中发布本源码的 GitHub 仓库。
-2. 生产分支选择上传源码使用的分支（新仓库通常为 main）。框架预设选择 None；根目录留空（仓库根目录）。
-3. 构建命令：`npm run build && npm run build:upload`。Cloudflare 默认安装依赖；锁文件必须一并上传。
-4. 构建输出目录：`pages-upload`。不要填 dist、dist/client 或源码根目录。构建会将后端打包为单文件 _worker.js，与页面脚本、样式及字体一起生成。
-5. 设置构建环境变量 `NODE_VERSION=24`，与仓库 .nvmrc 一致。首次构建如出现依赖安装限制，先检查 Node 版本和 npm 日志，不要只部署静态文件冒充协作工作台。
-6. 设置生产运行时 compatibility date 为 `2026-05-15`，compatibility flag 加 `nodejs_compat`。如使用预览环境，单独配置预览环境。
-7. 创建独立 D1 数据库，在数据库 Console 执行 deployment-tools/数据库初始化.sql。控制台需要逐条时，按 deployment-tools/SQL逐条 的数字顺序执行。
-8. 在 Pages → Settings → Bindings 添加 D1 数据库，变量名必须为 `DB`，选中刚创建的数据库。预览环境需要单独绑定，建议使用测试数据库。
-9. 在本地浏览器打开 deployment-tools/管理员初始化工具.html，自行设置首位管理员。将生成的 INSERT 和检查 SELECT 分别执行到 D1 Console。该工具只在空成员表创建首位管理员，不会产生通用默认账号。
-10. 保存配置后重新部署。先访问 `https://你的项目名.pages.dev/api/deployment-health`：应显示 ready:true、database:ready、adminInitialized:true。
-11. 打开首页确认可匿名阅读，再登录管理员、修改初始密码、创建编辑角色成员，用两个账号验证多人关注合并和各自取消关注。
+获取最新 main 提交后，重新运行一次生产构建即可。Wrangler 会使用 Vite 生成的 dist/server/wrangler.json，上传后端和 dist/client 静态资源。不要将输出目录手动改成 Pages 的 pages-upload。
 
-第一次构建若早于 DB 绑定，看到“绑定数据库”说明页属于未完成配置；需完成绑定、建表并重新部署。仓库 wrangler.jsonc 的 D1 UUID 是 CLI 本地配置占位符；Pages 此路径使用控制台 DB 绑定，不要将旧站数据库 ID 或凭据写进源码。
+### 数据库怎样创建与复用
 
-Git 集成与直接上传是不同项目创建路径。若已经有拖拽创建的 Pages 项目，请先核对 Cloudflare 当前支持的切换方式；不要覆盖原公开资讯网站。可新建 Git 集成项目并使用其新地址。
+wrangler.jsonc 中省略 database_id，使用固定的 database_name。Wrangler 4.92 支持自动配置：优先使用已有同名数据库或当前 Worker 的匹配 DB 绑定；没有时创建数据库并绑定。后续重新部署不会因为 GitHub 未记录 UUID 而每次新建数据库。
 
-## 修改与数据更新
+CI 自动创建的资源 ID 保存在 Cloudflare 控制台，不会自动写回 GitHub。不要再填 00000000-0000-4000-8000-000000000000；任何虚构 ID 都会关闭自动创建路径并再次触发 10181。
 
-连接成功后，向生产分支推送代码会触发 Cloudflare 构建部署。资讯写入仍走新站独立后台和数据库；不需要每次资讯更新都改代码或重新部署。
+部署身份仍必须有访问/创建 D1 的实际权限。若下一次日志明确报 403 或 D1 权限不足，需要在 Cloudflare 项目的构建部署令牌中配置 D1 权限，或请账号管理员预先创建并授权数据库；仓库代码不能绕过账号授权。若要使用其他名称/ID 的数据库，先备份并确认目标，再通过 npm run cf:configure -- --database-id 真实UUID --database-name 实际名称 配置、重新构建。
 
-旧站的每天09:30任务、邮箱连接及发送流程不随源码移动。新站如需定时更新和邮件，需要另行授权并配置。MONITOR_API_TOKEN 仅用于后端监测接口认证，不会自动建立定时任务。
+### 首次打开与管理员
 
-不要上传生产密码、管理员生成 SQL、.dev.vars、真实 .env、数据库导出、Cookie、访问令牌或私钥。
+1. 部署成功后访问 Worker 提供的正式网址。首次请求会自动创建当前版本所需的缺失表与索引；只使用 IF NOT EXISTS，不删表、不覆盖资讯或内部记录。
+2. 访问 `/api/deployment-health`。数据库可用时 ready 为 true、database 为 ready；首次还没有管理员时 adminInitialized 为 false，这是待完成账号初始化，不代表资讯不能浏览。
+3. 在 Cloudflare 的 D1 列表找到刚绑定的数据库（以 Worker 的 DB 绑定为准）。下载 deployment-tools/管理员初始化工具.html 到自己的电脑，用 Edge/Chrome 本地打开，自行设置管理员账号和初始密码。
+4. 将生成的 INSERT 与检查 SELECT 分别复制到该数据库的 Console 执行。它只允许在没有成员的数据库创建首位管理员，没有通用默认密码。
+5. 回到工作台登录并更改初始密码，在“成员与账号”创建同事的独立账号，给予编辑角色即可参与选题。无需 GPT 账号。
 
-## 本地复现
+若 /api/deployment-health 返回 missing，检查 DB 绑定；返回 unavailable，检查 D1 权限、可用性与运行日志。不要把部署命令通过等同于已经完成管理员初始化或邮件发送。
 
-Node.js 24+：先 npm ci，再 npm run typecheck、npm test、npm run build、npm run build:upload。最后可运行 node scripts/test-pages-upload.mjs，验证完整 Worker、D1 与权限。
+## B. 备选：Cloudflare Pages + GitHub
 
-部署前请查看 Cloudflare 实际构建日志；本说明不代表已经在你的 Cloudflare 账号部署成功。
+仅在你明确创建的是 Pages 项目时使用：框架预设 None，生产分支 main，构建命令 `npm run build && npm run build:upload`，输出目录 `pages-upload`，环境变量 `NODE_VERSION=24`。
 
-## 官方参考
+在 Pages 控制台设置 compatibility date 为 2026-05-15、flag 为 nodejs_compat；创建/选中独立 D1，并手动绑定变量名 DB。Pages 的发布流程不通过上述 Workers 部署命令自动创建 D1。绑定后新部署才会生效；表结构由新版本首次请求初始化，管理员步骤同上。源码保留数据库初始化.sql，可用于离线检查与手动补建。
 
+已有 Pages 直接上传项目与 Git 集成项目是不同创建路径；请按 Cloudflare 当前支持方式处理，勿覆盖原公开资讯网站。ZIP 拖拽流程另见先读我_Cloudflare拖拽部署.md。
+
+## 权限、数据与后续更新
+
+所有访客可浏览资讯和法律法规监测；团队选题、成员、备注、规则、日志及导出需要独立账号和角色权限。未登录不能加入选题池，也不能下载团队快照。
+
+仓库只含已有 56 条公开资讯快照，不含旧站口令、内部选题或邮箱连接。原站与新站数据库、地址、更新机制独立。每日采集、09:30 简报和 10:00 邮件没有随源码启用；MONITOR_API_TOKEN 只控制监测接口，不代表已有定时执行器。
+
+向 main 推送代码会触发 Git 集成构建；日常资讯写入仍走新站数据库，不需要每次改代码或重新部署。
+
+不要上传真实密码、管理员生成 SQL、.env、.dev.vars、数据库导出、Cookie、令牌或私钥。
+
+## 本地验证
+
+Node.js 24+ 安装依赖后：npm run typecheck、npm test、npm run build、npm run test:workers、npx wrangler deploy --dry-run。
+
+Pages 另执行 npm run build:upload 和 npm run test:pages。
+
+本地测试涵盖生成的真实多模块 Workers 入口、静态资源、空 D1 首次访问、公开资讯、团队接口保护、数据库失败提示、幂等建表和既有数据保留；Pages 另验证独立账号登录、改密、多人协作和导出。dry-run 不会验证真实 Cloudflare 账号额度或权限，实际部署仍需查看你的构建结果。
+
+## 官方依据
+
+自动配置（Automatic provisioning）：
+https://developers.cloudflare.com/workers/wrangler/configuration/#automatic-provisioning
+
+Workers Builds 配置：
+https://developers.cloudflare.com/workers/ci-cd/builds/configuration/
+
+D1：
+https://developers.cloudflare.com/d1/get-started/
+
+Pages Git 集成：
 https://developers.cloudflare.com/pages/get-started/git-integration/
-https://developers.cloudflare.com/pages/functions/advanced-mode/
-https://developers.cloudflare.com/pages/functions/bindings/#d1-databases
-https://developers.cloudflare.com/pages/configuration/build-image/

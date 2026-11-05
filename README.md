@@ -1,8 +1,10 @@
 # 贸易合规团队工作台 · Cloudflare 独立部署版
 
-本仓库包含完整的独立团队工作台源码，可通过 Cloudflare Pages 的 GitHub 集成自动构建部署，也可手动生成 ZIP 后拖拽上传。
+本仓库包含完整的独立团队工作台源码，默认支持 Cloudflare Workers 的 GitHub 自动构建部署，也保留 Pages / ZIP 拖拽部署。
 
-使用 GitHub 部署请先阅读 `deployment-tools/GitHub到Cloudflare部署.md`；使用拖拽部署请阅读 `deployment-tools/先读我_Cloudflare拖拽部署.md`。两种方式均需配置独立 D1 数据库和管理员账号。
+使用 GitHub 部署请先阅读 [GitHub 到 Cloudflare 部署说明](deployment-tools/GitHub到Cloudflare部署.md)。你当前的 Workers 项目名为 `trade-compliance`，构建命令为 `npm run build`，部署命令为 `npx wrangler deploy`。D1 未指定 ID 时由 Wrangler 自动创建或复用，首次访问自动补齐缺失表和索引；管理员仍由站点所有者自行初始化。
+
+如果明确选择 Pages 或 ZIP 拖拽，请使用部署说明中的对应章节，不要混用 Workers 与 Pages 的构建设置。
 
 ## 已包含
 
@@ -28,11 +30,14 @@ npm run typecheck
 npm test
 npm run build
 npm run build:upload
-node scripts/test-pages-upload.mjs
+npm run test:workers
+npm run test:pages
 ```
 
-`pages-upload/` 目录内所有文件应直接放到正式上传 ZIP 根目录。GitHub 集成由 Cloudflare 执行构建；手动拖拽时，将 pages-upload 目录内容压缩为 ZIP 上传。源码包本身不包含已编译文件。
+`pages-upload/` 目录内所有文件应直接放到正式上传 ZIP 根目录。Workers 构建只需 npm run build；Pages 额外执行 build:upload。手动拖拽时，将 pages-upload 目录内容压缩为 ZIP 上传。仓库不提交编译产物。
 
-`wrangler.jsonc` 的数据库 UUID 是占位符，仅供以后使用 CLI 部署时填写，拖拽方式在 Cloudflare 控制台直接绑定 D1 即可。不要将管理员初始化 SQL、密码、令牌或数据库导出放入正式上传包。
+`wrangler.jsonc` 不含占位 UUID：省略 database_id 即启用自动创建/复用。自动部署时数据库 ID 保存在 Cloudflare，不会自动写回 GitHub；同名数据库及现有 DB 绑定可以复用。若明确指定某个已有数据库，可运行 cf:configure 填写其真实 UUID。Pages 拖拽仍在控制台绑定 DB。不要将管理员生成的初始化 SQL、密码、令牌或数据库导出放入仓库或上传包。
+
+首次请求的数据库初始化只执行 CREATE TABLE/INDEX IF NOT EXISTS，不删除数据、不重置口令、不创建通用账号；本功能补齐当前表结构，不替代未来破坏性数据库迁移的人工审查。
 
 字体授权与第三方声明见 public/fonts、vendor 和 THIRD_PARTY_NOTICES.md。

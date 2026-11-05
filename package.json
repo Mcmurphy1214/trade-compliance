@@ -11,14 +11,16 @@
     "preview": "wrangler dev --config dist/server/wrangler.json --local",
     "deploy": "node scripts/deploy-cloudflare.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node scripts/test-workspace.mjs",
+    "test": "node scripts/test-database-setup.mjs && node scripts/test-workspace.mjs",
     "test:pdf": "node scripts/test-briefing-pdf.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "admin:bootstrap": "node scripts/bootstrap-admin.mjs",
     "cf:configure": "node scripts/configure-cloudflare.mjs",
-    "build:upload": "node scripts/build-pages-upload.mjs"
+    "build:upload": "node scripts/build-pages-upload.mjs",
+    "test:workers": "node scripts/test-workers-deployment.mjs",
+    "test:pages": "node scripts/test-pages-upload.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

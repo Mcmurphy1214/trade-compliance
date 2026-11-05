@@ -1,0 +1,23 @@
+[
+  "CREATE TABLE IF NOT EXISTS `article_revisions` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`article_id` text NOT NULL,\n\t`payload` text NOT NULL,\n\t`created_at` text NOT NULL\n);",
+  "CREATE TABLE IF NOT EXISTS `articles` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`payload` text NOT NULL,\n\t`version` integer DEFAULT 1 NOT NULL,\n\t`updated_at` text NOT NULL\n);",
+  "CREATE TABLE IF NOT EXISTS `monitor_runs` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`payload` text NOT NULL,\n\t`completed_at` text NOT NULL\n);",
+  "CREATE TABLE IF NOT EXISTS `analytics_state` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`started_at` text NOT NULL\n);",
+  "CREATE TABLE IF NOT EXISTS `page_views` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`day` text NOT NULL,\n\t`path` text NOT NULL,\n\t`article_id` text,\n\t`created_at` text NOT NULL\n);",
+  "CREATE INDEX IF NOT EXISTS `page_views_day_idx` ON `page_views` (`day`);",
+  "CREATE INDEX IF NOT EXISTS `page_views_article_day_idx` ON `page_views` (`article_id`,`day`);",
+  "CREATE TABLE IF NOT EXISTS `monitor_source_state` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`payload` text NOT NULL,\n\t`updated_at` text NOT NULL\n);",
+  "CREATE TABLE IF NOT EXISTS `workspace_activity` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`actor_id` text NOT NULL,\n\t`actor_name` text NOT NULL,\n\t`action` text NOT NULL,\n\t`article_id` text,\n\t`detail` text NOT NULL,\n\t`created_at` text NOT NULL\n);",
+  "CREATE INDEX IF NOT EXISTS `workspace_activity_time_idx` ON `workspace_activity` (`created_at`);",
+  "CREATE INDEX IF NOT EXISTS `workspace_activity_article_idx` ON `workspace_activity` (`article_id`);",
+  "CREATE TABLE IF NOT EXISTS `workspace_exports` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`payload` text NOT NULL,\n\t`checksum` text NOT NULL,\n\t`created_at` text NOT NULL,\n\t`created_by` text NOT NULL,\n\t`row_count` integer NOT NULL\n);",
+  "CREATE TABLE IF NOT EXISTS `workspace_follows` (\n\t`article_id` text NOT NULL,\n\t`user_id` text NOT NULL,\n\t`display_name` text NOT NULL,\n\t`followed_at` text NOT NULL,\n\t`active` integer DEFAULT 1 NOT NULL,\n\tPRIMARY KEY(`article_id`, `user_id`)\n);",
+  "CREATE TABLE IF NOT EXISTS `workspace_login_limits` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`attempts` integer NOT NULL,\n\t`reset_at` text NOT NULL\n);",
+  "CREATE TABLE IF NOT EXISTS `workspace_matches` (\n\t`article_id` text NOT NULL,\n\t`rule_id` text NOT NULL,\n\t`rule_name` text NOT NULL,\n\t`rule_version` integer NOT NULL,\n\t`matched_at` text NOT NULL,\n\t`mutation_id` text NOT NULL,\n\tPRIMARY KEY(`article_id`, `rule_id`)\n);",
+  "CREATE TABLE IF NOT EXISTS `workspace_pool` (\n\t`article_id` text PRIMARY KEY NOT NULL,\n\t`active` integer DEFAULT 1 NOT NULL,\n\t`suppressed` integer DEFAULT 0 NOT NULL,\n\t`note` text DEFAULT '' NOT NULL,\n\t`status` text DEFAULT '待研判' NOT NULL,\n\t`version` integer DEFAULT 0 NOT NULL,\n\t`last_mutation` text NOT NULL,\n\t`created_at` text NOT NULL,\n\t`updated_at` text NOT NULL\n);",
+  "CREATE TABLE IF NOT EXISTS `workspace_rules` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`name` text NOT NULL,\n\t`conditions` text NOT NULL,\n\t`enabled` integer DEFAULT 1 NOT NULL,\n\t`version` integer DEFAULT 1 NOT NULL,\n\t`last_mutation` text DEFAULT '' NOT NULL,\n\t`updated_at` text NOT NULL,\n\t`updated_by` text NOT NULL\n);",
+  "CREATE TABLE IF NOT EXISTS `workspace_sessions` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`user_id` text NOT NULL,\n\t`expires_at` text NOT NULL,\n\t`created_at` text NOT NULL\n);",
+  "CREATE INDEX IF NOT EXISTS `workspace_sessions_user_idx` ON `workspace_sessions` (`user_id`);",
+  "CREATE TABLE IF NOT EXISTS `workspace_users` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`username` text NOT NULL,\n\t`display_name` text NOT NULL,\n\t`role` text NOT NULL,\n\t`password_hash` text NOT NULL,\n\t`salt` text NOT NULL,\n\t`disabled` integer DEFAULT 0 NOT NULL,\n\t`must_change_password` integer DEFAULT 1 NOT NULL,\n\t`version` integer DEFAULT 1 NOT NULL,\n\t`last_mutation` text DEFAULT '' NOT NULL,\n\t`created_at` text NOT NULL,\n\t`updated_at` text NOT NULL\n);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS `workspace_users_username_unique` ON `workspace_users` (`username`);"
+]
