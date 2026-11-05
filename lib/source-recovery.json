@@ -1,0 +1,345 @@
+{
+  "version": "2026-11-03",
+  "purpose": "每日任务先使用本表恢复目录与机器可读源；访问成功、目录完整、原文已读和名单差分完成分别记账，不以技术修复代替实质核查。",
+  "workflow": [
+    "先调用get_trade_briefing和get_monitor_config，读取实际窗口、已有ID及本表；按coveragePolicy逐项核查，保留原运行。",
+    "商务部动态目录使用read_official_catalog，一次1至2个source_ids、max_pages=8。五个ID分别读取，不以空壳或重复第一页认定无新增；检查complete、total、pagesRead与pagesExpected。",
+    "cn-bureau-consultations的日期为发布日期；四个cn-consultations-*的列表日期是意见截止日。必须打开相关原通知核对发布日期，不能用截止日筛选新资讯。综合信息和征求意见目录可能不同步，须交叉检查。",
+    "每轮调用check_un_sanctions_changes。若当前客户端尚未刷新新工具，可在record_monitor_run的run内显式传sourceCheckRequests:[\"un-consolidated\"]，服务端会读取并持久化名单、将sourceCheckResults写入记录；这也是已有云任务的兼容入口。baselineCreated=true仅表示首次当前快照，不证明历史窗口没有变动。后续差异须回查委员会通告和生效日；checkedAt晚于09:00不等于09:00历史名单。",
+    "Federal Register API按机构及美国原始刊登日期枚举，per_page=100，遍历next_page_url至结束并核对count。北京时间09:00对应的美国当日尚未刊登文件不能提前入库。打开每篇业务相关raw_text_url、正式PDF及关键附件；机构首页不能替代正文。",
+    "欧盟TRON读取当年notices全目录并筛选原公告publicationDate，按Europe/Brussels转换日期；库lastUpdate、RSS生成时间和案件measStatus不是新措施日期或法律状态。外链EUR-Lex未取得原文时仍保留原文缺口。",
+    "XML/XLSX/RSS须实际下载并解析格式、检查记录数与稳定ID。HTTP200的HTML错误页、网页最后更新日、搜索摘要和文件重新生成均不能算名单新增。缺少可信历史快照时先建基线，不补造历史差分。",
+    "每条来源记录状态access_failed、not_run、index_checked、originals_checked、baseline_created或diff_checked，附检查时间、原始URL、实际替代URL、页数/条目数和未读附件。一个类别不能用单一来源代表完成。",
+    "先补查每日核心来源，再核查业务相关来源和7日扩展轮查；按优先级分批执行，访问失败可在同轮用下列官方替代源重试。仍失败的来源写明阻碍和待办，下一轮优先重试，不静默跳过。",
+    "仅把有已核实原文的新事项或7日内遗漏事项写入upsert_articles；补录标原始日期、所属窗口及遗漏原因。record_monitor_run保存本轮证据与残余缺口，gaps非空必须部分完成。scheduleEnabled沿用已核实的云任务状态，不因部分完成或一次访问失败自动改成未启用。"
+  ],
+  "sources": [
+    {
+      "id": "cn-mofcom-dynamic",
+      "category": "出口管制",
+      "primary": [
+        "https://aqygzj.mofcom.gov.cn/zhxx/index.html",
+        "https://www.mofcom.gov.cn/zqyj/"
+      ],
+      "method": "read_official_catalog；固定IDs为cn-bureau-consultations、cn-consultations-policy、cn-consultations-commissions、cn-consultations-standards、cn-consultations-other。解析官网script的queryData，GET /api-gateway/jpaas-publish-server/front/page/build/unit，paramJson为pageNo/pageSize；禁止执行网页脚本或猜测为空。",
+      "verifiedEvidence": "2026-11-03实读90/18/88/60/43条，共299条21页，数量与去重数相符。仅证明这五个目录读取完整，不代表全部公告和附件已读。"
+    },
+    {
+      "id": "us-federal-register",
+      "categories": [
+        "出口管制",
+        "经济制裁",
+        "市场准入与产业政策",
+        "关税"
+      ],
+      "primary": [
+        "https://www.federalregister.gov/api/v1/documents.json"
+      ],
+      "method": "GET conditions[agencies][]=机构slug、conditions[publication_date][gte]/[lte]=原始日期、per_page=100、order=newest；逐页检查count/results/next_page_url，再读取返回的raw_text_url或govinfo正式PDF。",
+      "agencies": {
+        "BIS": "industry-and-security-bureau",
+        "State": "state-department",
+        "FCC": "federal-communications-commission",
+        "PHMSA": "pipeline-and-hazardous-materials-safety-administration",
+        "ITA": "international-trade-administration",
+        "USITC": "international-trade-commission"
+      },
+      "limits": "只能替代正式刊登文件枚举；不替代DDTC许可指导、FCC全部设备认证函、BIS全部网页附件。2026-11-02 ITA实读7条、USITC9条，各1页。"
+    },
+    {
+      "id": "eu-tron",
+      "category": "关税",
+      "primary": [
+        "https://tron.trade.ec.europa.eu/investigations/api/eucase/notices/2026/2026",
+        "https://tron.trade.ec.europa.eu/investigations/api/download/eucase/rss/ongoing"
+      ],
+      "method": "notices/{起年}/{止年}逐年读取；details/{caseId}和pubs/{caseId}在/api/eucase/下，pubs/doc/{publicationId}读取缓存附件。",
+      "limits": "2026目录实读550条。publicationDate使用Europe/Brussels；url=N/A可尝试doc接口，但EUR-Lex外链可能没有缓存。TRON不替代TARIC全量税率及EUR-Lex完整公报。"
+    },
+    {
+      "id": "us-cbp-csms",
+      "category": "关税",
+      "primary": [
+        "https://www.cbp.gov/trade/automated/cargo-systems-messaging-service",
+        "https://content.govdelivery.com/accounts/USDHSCBP/widgets/USDHSCBP_WIDGET_2.rss"
+      ],
+      "method": "解析官网公开引用的RSS，含正文和原始发送时间；100条滚动窗口不足时另查正式CSMS原文。",
+      "limits": "归档PDF滞后，不能替代实时RSS。附件税号表须另读。"
+    },
+    {
+      "id": "us-ustr",
+      "category": "关税",
+      "primary": [
+        "https://ustr.gov/about-us/policy-offices/press-office/press-releases"
+      ],
+      "method": "日期目录加原始新闻稿；实施及税率须再核实正式公告与CBP指令。"
+    },
+    {
+      "id": "eu-council",
+      "category": "经济制裁",
+      "primary": [
+        "https://www.consilium.europa.eu/en/press/press-releases/"
+      ],
+      "method": "实读日期列表和相关正文；页面已恢复加载。不能用未加载的新闻流判无新增。"
+    },
+    {
+      "id": "eu-russia-faq",
+      "category": "经济制裁",
+      "primary": [
+        "https://finance.ec.europa.eu/node/1068/rss_en",
+        "https://finance.ec.europa.eu/eu-and-world/sanctions-restrictive-measures/sanctions-adopted-following-russias-military-aggression-against-ukraine/frequently-asked-questions-sanctions-against-russia_en"
+      ],
+      "method": "RSS原始XML加FAQ正文；保留FAQ实际修订日。"
+    },
+    {
+      "id": "eu-dual-use",
+      "category": "出口管制",
+      "primary": [
+        "https://policy.trade.ec.europa.eu/help-exporters-and-importers/exporting-dual-use-items_en"
+      ],
+      "limits": "主题页可读；正式清单修订仍回EUR-Lex及附件。"
+    },
+    {
+      "id": "eu-oj",
+      "categories": [
+        "出口管制",
+        "经济制裁",
+        "市场准入与产业政策",
+        "对外投资",
+        "关税"
+      ],
+      "primary": [
+        "https://eur-lex.europa.eu/EN/display-feed.rss?rssId=165",
+        "https://eur-lex.europa.eu/EN/display-feed.rss?rssId=166",
+        "https://publications.europa.eu/webapi/rdf/sparql"
+      ],
+      "limits": "EUR-Lex日刊前端仍有校验，已用出版局官方接口恢复元数据与部分正文。查询日期和LIMIT须按实际窗口调整，达到1000条要分页；需读相关原文及附件。实查11月2日0条、11月3日2条，10月30日阳性对照40条。11月3日两项无截止前发布时间及英文正文证据，留下一轮，不能按午夜推断已发布。旧记录入库修改日不能替代出版日。",
+      "method": "L/C系列RSS各为100条滚动目录；按item.pubDate筛选，channel生成时间不是法规发布日。RSS可能滞后，须用出版局SPARQL查cdm:official-journal-act_date_publication。GET endpoint?query=URL编码的query，header Accept:application/sparql-results+json；无此Accept可能406。",
+      "query": "PREFIX cdm: <http://publications.europa.eu/ontology/cdm#> PREFIX xsd: <http://www.w3.org/2001/XMLSchema#> SELECT DISTINCT ?work ?date ?celex ?series WHERE { ?work cdm:official-journal-act_date_publication ?date . FILTER(?date >= \"2026-11-02\"^^xsd:date && ?date <= \"2026-11-03\"^^xsd:date) OPTIONAL { ?work cdm:resource_legal_id_celex ?celex } OPTIONAL { ?work cdm:official-journal-act_part_of_collection_document ?series } } LIMIT 1000",
+      "fullText": "GET https://publications.europa.eu/resource/celex/{CELEX} ，headers Accept:application/xhtml+xml, Accept-Language:en；官方重定向至Cellar语言版本。实测32026R2396返回含条款的完整XHTML。缺CELEX时使用返回work资源及语言表达元数据继续定位，不猜文号。"
+    },
+    {
+      "id": "un-consolidated",
+      "category": "经济制裁",
+      "primary": [
+        "https://main.un.org/securitycouncil/en/content/un-sc-consolidated-list",
+        "https://scsanctions.un.org/resources/xml/en/name/consolidated.xml"
+      ],
+      "method": "check_un_sanctions_changes持久化DATAID内容哈希；稳定原始URL可能重定向到临时下载地址，不能保存临时签名链接。",
+      "limits": "网页最后变更日与XML dateGenerated不同。首次基线无历史差分，须另读委员会变更通告。"
+    },
+    {
+      "id": "jp-sanctions",
+      "category": "经济制裁",
+      "primary": [
+        "https://www.mof.go.jp/policy/international_policy/gaitame_kawase/gaitame/economic_sanctions/recent.html"
+      ],
+      "method": "最新措施目录、联名公告及名单附件；URL日期可能是生效日，核实正文发布日期。"
+    },
+    {
+      "id": "kr-yest",
+      "category": "出口管制",
+      "primary": [
+        "https://www.yestrade.go.kr/user/boards/69/posts"
+      ],
+      "limits": "实读公告第一页及总数709条71页，非全部历史附件。KOSTI首页超时不能替代该可读入口。"
+    },
+    {
+      "id": "ch-seco",
+      "category": "经济制裁",
+      "primary": [
+        "https://www.seco.admin.ch/de/suche-nach-sanktionsadressaten"
+      ],
+      "limits": "本次XML下载返回HTTP200的HTML暂不可用通知；必须验证XML内容后才可更新基线。"
+    },
+    {
+      "id": "ca-sanctions",
+      "category": "经济制裁",
+      "primary": [
+        "https://www.international.gc.ca/world-monde/international_relations-relations_internationales/sanctions/consolidated-consolide.aspx?lang=eng",
+        "https://www.international.gc.ca/world-monde/assets/office_docs/international_relations-relations_internationales/sanctions/sema-lmes.xml"
+      ],
+      "limits": "页面提示截至2026-09-22且可能滞后，非约束性汇编；本次XML超时。须核对实际制裁条例及修订，不能视为当前法律全集。"
+    },
+    {
+      "id": "au-sanctions",
+      "category": "经济制裁",
+      "primary": [
+        "https://www.dfat.gov.au/international-relations/security/sanctions/consolidated-list",
+        "https://www.dfat.gov.au/sites/default/files/Australian_Sanctions_Consolidated_List.xlsx"
+      ],
+      "method": "稳定XLSX已实际下载；解析记录并另建历史基线。",
+      "limits": "11月2日网页更新时间本身不是列名变更；本次未完成历史差分。"
+    },
+    {
+      "id": "nz-sanctions",
+      "category": "经济制裁",
+      "primary": [
+        "https://www.mfat.govt.nz/en/countries-and-regions/europe/ukraine/russian-invasion-of-ukraine/sanctions/russia-sanctions-register",
+        "https://www.mfat.govt.nz/assets/Countries-and-Regions/Europe/Ukraine/Russia-Sanctions-Register.xlsx"
+      ],
+      "limits": "XLSX工具无法显示不能记成403；列表版本和法规生效日分别核对。"
+    },
+    {
+      "id": "sg-mas",
+      "category": "经济制裁",
+      "primary": [
+        "https://www.mas.gov.sg/regulation/anti-money-laundering/targeted-financial-sanctions/lists-of-designated-individuals-and-entities"
+      ],
+      "limits": "实读UN转引目录，不代表新加坡所有自主措施的完整差分。"
+    },
+    {
+      "id": "cn-samr-cert",
+      "category": "市场准入与产业政策",
+      "primary": [
+        "https://www.samr.gov.cn/rzjgs/"
+      ],
+      "method": "使用认证监管司真实业务栏目和CNCA交叉核对，读取公告附件；签署日与网页发布日期分别记录。"
+    },
+    {
+      "id": "us-irs",
+      "category": "市场准入与产业政策",
+      "primary": [
+        "https://www.irs.gov/irb/2026-45_irb"
+      ],
+      "method": "按当期Internal Revenue Bulletin正式目录和财政部规则核查，不以滞后的newsroom首页认定无新增。"
+    },
+    {
+      "id": "eu-products",
+      "category": "市场准入与产业政策",
+      "primary": [
+        "https://single-market-economy.ec.europa.eu/single-market/goods/ce-marking_en",
+        "https://environment.ec.europa.eu/topics/waste-and-recycling/batteries_en"
+      ],
+      "limits": "主题页已读，仍需OJ/实施法令/协调标准原文。"
+    },
+    {
+      "id": "battery-transport",
+      "category": "市场准入与产业政策",
+      "primary": [
+        "https://unece.org/transport/dangerous-goods",
+        "https://www.icao.int/dangerous-goods",
+        "https://www.imo.org/en/mediacentre/pressbriefings/pages/default.aspx"
+      ],
+      "limits": "UNECE403、ICAO附件403；IMO新闻不覆盖全部通函和IMDG付费标准。PHMSA正式拟议规则可核实美国拟实施内容，不能替代全部国际原文。"
+    },
+    {
+      "id": "uk-product-safety",
+      "category": "市场准入与产业政策",
+      "primary": [
+        "https://www.gov.uk/guidance/product-safety-advice-for-businesses"
+      ],
+      "limits": "可读指导页不等于OPSS全部公告核查。"
+    },
+    {
+      "id": "jp-kr-product-safety",
+      "category": "市场准入与产业政策",
+      "primary": [
+        "https://www.meti.go.jp/product_safety/",
+        "https://kats.go.kr/"
+      ],
+      "limits": "本次METI403、KATS返回空壳，仍须逐公告/官报补查。"
+    },
+    {
+      "id": "us-cfius",
+      "category": "对外投资",
+      "primary": [
+        "https://www.cfius.gov/news/press-releases/",
+        "https://www.cfius.gov/resources/laws-and-guidance/"
+      ],
+      "method": "旧财政部地址重定向至独立CFIUS站，读取真实新闻及法律指导。"
+    },
+    {
+      "id": "us-oisp",
+      "category": "对外投资",
+      "primary": [
+        "https://home.treasury.gov/policy-issues/international/outbound-investment-program"
+      ],
+      "method": "最新规则、FAQ和拟议规则分别核查；保留征求意见状态。"
+    },
+    {
+      "id": "uk-nsia",
+      "category": "对外投资",
+      "primary": [
+        "https://www.gov.uk/government/collections/notices-of-final-orders-under-the-national-security-and-investment-act-2021"
+      ],
+      "method": "使用最终命令专门目录，不能只查NSIA总专题。"
+    },
+    {
+      "id": "eu-fdi",
+      "category": "对外投资",
+      "primary": [
+        "https://policy.trade.ec.europa.eu/enforcement-and-protection/investment-screening_en"
+      ],
+      "limits": "专题可读，正式条例可用eu-oj所列出版局Cellar取全文；仍须逐项核对附件及窗口。"
+    },
+    {
+      "id": "cn-investment",
+      "category": "对外投资",
+      "primary": [
+        "https://hzs.mofcom.gov.cn/zcfb/",
+        "https://www.safe.gov.cn/safe/zcfg/index.html",
+        "https://www.ndrc.gov.cn/fggz/lywzjw/jwtz/index.html",
+        "https://hzf.mofcom.gov.cn/channel/zcfg.shtml"
+      ],
+      "limits": "商务部政策分类、SAFE目录及海外综合服务投资目录可读，后者可直链发改委正式文件，须回溯原始日期。NDRC境外投资主目录原始HTML有空u-list及createPageHTML(1,0)，仍无有效列表，不认定无更新。地方外汇分局不在当前目录范围。"
+    },
+    {
+      "id": "cn-trade-remedies",
+      "category": "关税",
+      "primary": [
+        "https://trb.mofcom.gov.cn/myjjdc/index.html",
+        "https://trb.mofcom.gov.cn/mybldc/index.html",
+        "https://cacs.mofcom.gov.cn/"
+      ],
+      "limits": "海外案件转载仅作线索，回调查国原文；不替代财政部税率、海关全部公告。"
+    },
+    {
+      "id": "jp-tariffs",
+      "category": "关税",
+      "primary": [
+        "https://www.customs.go.jp/kaisei/kokuji.htm",
+        "https://www.customs.go.jp/tokusyu/kazeikamotsu_index.htm",
+        "https://www.customs.go.jp/tokusyu/chosakamotsu_index.htm"
+      ],
+      "method": "正式告示、征税清单、调查目录交叉核对；CACS转载日不能当原始发布日期。"
+    },
+    {
+      "id": "uk-tra",
+      "category": "关税",
+      "primary": [
+        "https://public-file.trade-remedies.service.gov.uk/"
+      ],
+      "limits": "案件Updated字段不一定为新裁定；读取新增文件、最终决定与税则。"
+    },
+    {
+      "id": "kr-ktc",
+      "category": "关税",
+      "primary": [
+        "https://ktc.go.kr/main.do"
+      ],
+      "limits": "首页可读，附件及企划财政部最终征税决定尚须补查。"
+    },
+    {
+      "id": "jp-fdi",
+      "category": "对外投资",
+      "primary": [
+        "https://www.mof.go.jp/policy/international_policy/gaitame_kawase/fdi/index.htm"
+      ],
+      "method": "正确尾缀为.htm；可读真实新闻、行业和申报材料目录，不能使用错误的.html地址。",
+      "limits": "本轮最新新闻9月16日，未逐一差分全部法律附件。"
+    },
+    {
+      "id": "kr-investment",
+      "category": "对外投资",
+      "primary": [
+        "https://www.motir.go.kr/kor/article/ATCL7d1e8393f",
+        "https://www.motir.go.kr/kor/article/ATCLa1cb24c71",
+        "https://www.motir.go.kr/kor/article/ATCLa6723dc7b",
+        "https://www.motir.go.kr/kor/article/ATCL0c554f816"
+      ],
+      "method": "贸易投资、立法预告、行政预告、告示均返回真实10条表格。",
+      "limits": "本次各目录最新10月26日或30日；首页窗口核查不等于全部历史附件差分。law.go.kr空搜索结果不能替代有效公告。"
+    }
+  ]
+}

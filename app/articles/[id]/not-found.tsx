@@ -1,0 +1,1 @@
+export default function NotFound(){return <main className="reader-not-found"><a className="reader-not-found-brand" href="/">合规前沿.</a><p className="eyebrow">ARTICLE NOT FOUND</p><h1>暂未找到这条资讯</h1><p>链接可能已变更，或该资讯尚未收录。请返回资讯列表检索。</p><a className="primary" href="/">返回资讯列表</a></main>}

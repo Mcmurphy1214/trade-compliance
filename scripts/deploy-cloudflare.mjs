@@ -1,0 +1,12 @@
+import {readFileSync,existsSync} from 'node:fs';
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+const root=fileURLToPath(new URL('../',import.meta.url));
+const configured=JSON.parse(readFileSync(new URL('../wrangler.jsonc',import.meta.url),'utf8'));
+if(configured.d1_databases.some(d=>/^00000000-/.test(d.database_id)))throw Error('请先运行 cf:configure，填写真实 D1 database_id。');
+const file=new URL('../dist/server/wrangler.json',import.meta.url);
+if(!existsSync(file))throw Error('缺少构建产物，请先运行 npm run build。');
+const built=JSON.parse(readFileSync(file,'utf8'));
+if(built.d1_databases?.[0]?.database_id!==configured.d1_databases[0].database_id)throw Error('构建产物与数据库配置不一致，请重新运行 npm run build。');
+const result=spawnSync(process.execPath,[fileURLToPath(new URL('../node_modules/wrangler/bin/wrangler.js',import.meta.url)),'deploy','--config',fileURLToPath(file)],{cwd:root,stdio:'inherit'});
+if(result.error)throw result.error;process.exit(result.status??1);

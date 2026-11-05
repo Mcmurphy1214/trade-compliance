@@ -1,0 +1,9 @@
+export type WorkspaceRole="admin"|"editor"|"viewer";
+export type WorkspaceActor={id:string;username:string;displayName:string;role:WorkspaceRole;kind:"independent"|"platform";mustChangePassword:boolean};
+export type PoolEntry={articleId:string;active:boolean;suppressed:boolean;note:string;status:string;version:number;updatedAt:string;followers:{userId:string;name:string;at:string}[];rules:{id:string;name:string;version:number;at:string}[]};
+export type RuleConditions={categories:string[];jurisdictions:string[];topics:string[];statuses:string[]};
+export type WorkspaceRule={id:string;name:string;conditions:RuleConditions;enabled:boolean;version:number;updatedAt:string;updatedBy:string};
+export type WorkspaceMember={id:string;username:string;displayName:string;role:WorkspaceRole;disabled:boolean;mustChangePassword:boolean;version:number;createdAt:string};
+export type WorkspaceActivity={id:string;actorName:string;action:string;articleId:string|null;detail:string;at:string};
+export type WorkspaceState={user:WorkspaceActor|null;pool:PoolEntry[];rules:WorkspaceRule[];activity:WorkspaceActivity[];members:WorkspaceMember[];signInUrl:string;serverTime:string};
+export const POOL_STATUSES=["待研判","研判中","拟纳入简报","已归档"];

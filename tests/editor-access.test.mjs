@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {isEditorIdentity,isAllowedWriteOrigin} from '../lib/editor-policy.ts';
+const owner='owner@example.test';
+assert.equal(isEditorIdentity(null,null,owner),false,'anonymous visitors cannot write');
+assert.equal(isEditorIdentity('visitor','visitor@example.test',owner),false,'signed-in non-owner cannot write');
+assert.equal(isEditorIdentity(null,owner,owner),false,'email without authenticated user identity is insufficient');
+assert.equal(isEditorIdentity('owner-id',null,owner),false,'identity without verified email is insufficient');
+assert.equal(isEditorIdentity('owner-id',owner,undefined),false,'missing server configuration fails closed');
+assert.equal(isEditorIdentity('owner-id',owner,''),false,'empty server configuration fails closed');
+assert.equal(isEditorIdentity('owner-id','owner@example.test.attacker.test',owner),false,'email suffix cannot match owner');
+assert.equal(isEditorIdentity('owner-id',' OWNER@EXAMPLE.TEST ',owner),true,'authenticated owner is recognized');
+assert.equal(isAllowedWriteOrigin('https://news.example.test/api/feed','https://news.example.test'),true,'same-origin browser write allowed');
+assert.equal(isAllowedWriteOrigin('https://news.example.test/api/feed','https://attacker.example.test'),false,'cross-site browser write rejected');
+assert.equal(isAllowedWriteOrigin('https://news.example.test/api/feed','null'),false,'opaque browser origin rejected');
+assert.equal(isAllowedWriteOrigin('https://news.example.test/mcp',null),true,'authenticated non-browser MCP remains supported');
+console.log('PASS 12 项公开阅读与管理写入权限边界检查');

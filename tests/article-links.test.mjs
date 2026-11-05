@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import {articlePath,articleHref,listHref,safeListReturn} from '../lib/article-links.ts';
+assert.equal(articlePath('us-coins-20261022'),'/articles/us-coins-20261022');
+assert.equal(articleHref('news'),'/articles/news');
+const back=listHref('对外投资','半导体');
+assert.equal(new URL('https://example.test'+articleHref('news',back)).searchParams.get('from'),back,'filtered list survives in article link');
+assert.equal(safeListReturn('//outside.example.test'),'/');
+assert.equal(safeListReturn('/articles/another'),'/','return cannot create an article navigation loop');
+assert.equal(safeListReturn('/\\outside.example.test'),'/');
+assert.equal(safeListReturn('/?article=old&category=出口管制').includes('article='),false,'legacy query cannot reopen old detail window');
+assert.equal(safeListReturn('https://outside.example.test'),'/');
+console.log('PASS 8 项资讯独立链接、返回路径与旧链接兼容检查');

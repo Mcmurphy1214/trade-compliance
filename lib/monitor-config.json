@@ -1,0 +1,193 @@
+{
+  "name": "合规前沿",
+  "timezone": "Asia/Shanghai",
+  "cutoffTime": "09:30",
+  "weekends": true,
+  "rules": [
+    "按上期实际核查截止至本期北京时间09:30监测，周末和节假日照常。",
+    "先读取已有文章和监测窗口去重；使用原始发布日期和实质修订日期，不能使用抓取或转载时间。",
+    "补录最多回溯7天，标明原始日期和遗漏原因；不凑条数。",
+    "只发布已核实原文的内容；关键名单、日期或义务不能推断。",
+    "发布方jurisdiction与受影响国家affectedRegions分别记录。正文是事实，implications为分析。",
+    "读取已有id进行修订，同一原始事项只维护一篇主记录；新增、修订、补录分别标记。",
+    "经upsert_articles写入后调用get_trade_briefing读回，调用record_monitor_run保存实际覆盖窗口、checkedSources和gaps。无新增也记录核查运行。",
+    "日常仅更新工作台数据，不重新部署。对外发送仅限用户明确授权的收件人，并须先确认发件邮箱连接可用；无连接不得声称已发送。",
+    "资讯正文必须按editorialPolicy执行：原文中文译述后适度提炼，保留条件、例外及时间安排，避免仅写两三句概述。",
+    "关税板块按tariffPolicy核查税率调整及贸易救济全流程；适用国家、原产地、程序阶段、税率、产品范围和应诉期限须分别记录。",
+    "每轮优先执行coveragePolicy.requiredSources逐栏核查，特别包括产业安全与进出口管制局综合信息及商务部征求意见；不能仅依赖出口管制信息网首页和搜索结果。",
+    "核心栏目未核查、访问失败或仍有其他覆盖缺口时记录部分完成；已完成状态须经服务端核查清单校验。",
+    "每日执行get_monitor_config返回的sourceRecovery，使用已验证的官方动态目录接口、Federal Register API、TRON目录及名单快照；不再把栏目壳、过期索引、HTTP200错误页或未建基线当成核查完成。"
+  ],
+  "sources": {
+    "出口管制": [
+      "BIS https://www.bis.gov/news-updates",
+      "Federal Register BIS与国务院 https://www.federalregister.gov/agencies/industry-and-security-bureau",
+      "DDTC https://www.pmddtc.state.gov/ddtc_public",
+      "欧盟理事会及EUR-Lex https://eur-lex.europa.eu/",
+      "欧委会两用物项 https://policy.trade.ec.europa.eu/help-exporters-and-importers/exporting-dual-use-items_en",
+      "英国ECJU https://www.gov.uk/government/collections/notices-to-exporters",
+      "商务部产业安全与进出口管制局首页 https://aqygzj.mofcom.gov.cn/：核对所有栏目入口及窗口内公告，不只看法律政策。",
+      "产业安全与进出口管制局综合信息 https://aqygzj.mofcom.gov.cn/zhxx/index.html：必查征求意见、通知及解释；动态目录为空时回查局首页对应栏目、栏目接口和原始通知，未核实不得记完成。",
+      "产业安全与进出口管制局法律政策 https://aqygzj.mofcom.gov.cn/flzc/index.html：检查法律、法规、规章及规范性文件，不能代替综合信息。",
+      "商务部征求意见 https://www.mofcom.gov.cn/zqyj/：逐项检查政策法规等分类；搜索结果或首页无新增不等于无新征求意见。",
+      "中国出口管制信息网 https://exportcontrol.mofcom.gov.cn/h5/index.shtml：作为独立交叉核查来源，不能代替商务部局站栏目；海关总署公告另行核对。",
+      "日本METI、韩国主管机关/KOSTI/YESTRADE",
+      "德国BAFA、荷兰CDIU、法国SBDU、瑞士SECO、挪威DEKSA",
+      "加拿大Global Affairs、澳大利亚DEC、新西兰MFAT、新加坡海关、香港工贸署、台湾国际贸易署",
+      "瓦森纳、NSG、澳大利亚集团、MTCR"
+    ],
+    "经济制裁": [
+      "OFAC https://ofac.treasury.gov/recent-actions 及Sanctions List Service",
+      "美国白宫、国务院、司法部",
+      "欧盟理事会 https://www.consilium.europa.eu/en/press/press-releases/ 、EUR-Lex、欧委会",
+      "英国UK Sanctions List https://www.gov.uk/government/publications/the-uk-sanctions-list 、OFSI、OTSI",
+      "中国商务部、外交部 https://www.fmprc.gov.cn/ 、海关",
+      "联合国安理会综合名单及制裁委员会",
+      "日本财务省、韩国主管机关、SECO、加拿大、澳大利亚DFAT、新西兰MFAT、新加坡MAS"
+    ],
+    "市场准入与产业政策": [
+      "FCC https://www.fcc.gov/ 及官方文档 https://docs.fcc.gov/",
+      "UL Solutions https://www.ul.com/ 的标准及认证方案，区分法规与标准机构资料",
+      "IRS https://www.irs.gov/ 及美国财政部：OBBBA/PFE、清洁能源税收抵免和供应链资格",
+      "电池包装运输：美国PHMSA https://www.phmsa.dot.gov/ 、UNECE https://unece.org/ 、ICAO https://www.icao.int/ 、IMO https://www.imo.org/",
+      "欧委会产品合规、电池法规；英中日韩市场监管与认证主管机关"
+    ],
+    "对外投资": [
+      "美国财政部OISP https://home.treasury.gov/policy-issues/international/outbound-investment-program",
+      "美国财政部CFIUS https://home.treasury.gov/policy-issues/international/the-committee-on-foreign-investment-in-the-united-states-cfius ，标注目的地外资审查",
+      "欧委会经济安全及投资审查、英国NSIA",
+      "中国发改委、商务部、外汇局",
+      "日本财务省、METI；韩国及其他投资审查主管机关"
+    ],
+    "关税": [
+      "中国：国务院关税税则委员会/财政部 https://gss.mof.gov.cn/、商务部贸易救济公告 https://www.mofcom.gov.cn/、中国贸易救济信息网 https://cacs.mofcom.gov.cn/、海关总署 https://www.customs.gov.cn/。海外案件须回到调查国原始公告核实。",
+      "美国：商务部ITA Enforcement and Compliance https://www.trade.gov/us-antidumping-and-countervailing-duties、USITC https://www.usitc.gov/trade_remedy.htm、Federal Register https://www.federalregister.gov/、USTR https://ustr.gov/、CBP https://www.cbp.gov/；分别核实倾销/补贴裁定、产业损害裁定、征税指令与税率执行。",
+      "欧盟：欧委会贸易救济 https://policy.trade.ec.europa.eu/enforcement-and-protection/trade-defence_en、案件库 https://tron.trade.ec.europa.eu/、EUR-Lex https://eur-lex.europa.eu/、TARIC；正式条例和附件优先。",
+      "英国：TRA公开案件 https://public-file.trade-remedies.service.gov.uk/、政府贸易救济公告 https://www.gov.uk/government/organisations/trade-remedies-authority、英国贸易税则 https://www.trade-tariff.service.gov.uk/；区分TRA建议和最终决定。",
+      "日本：财务省及海关税则 https://www.customs.go.jp/english/tariff/、METI贸易救济公告 https://www.meti.go.jp/；韩国：贸易委员会KTC https://www.ktc.go.kr/、企划财政部及关税厅。",
+      "扩展市场：印度DGTR与财政部CBIC、印尼KADI/KPPI及财政部、越南贸易救济局、泰国外贸厅DFT、马来西亚MITI、加拿大CBSA/CITT、澳大利亚Anti-Dumping Commission、墨西哥经济部及DOF、巴西SECEX/CAMEX及Diário Oficial、土耳其贸易部、南非ITAC；使用对应机关正式公告及税则。",
+      "WTO贸易救济通知、成员关税及贸易政策数据库仅作交叉核查和线索，不以WTO收件日期或商业转载日期替代本国公告原始发布日期。"
+    ]
+  },
+  "extendedPool": "俄罗斯、白俄罗斯、乌克兰、印度DGFT、阿联酋EOCN、马来西亚MITI、菲律宾STMO、泰国DFT、越南工贸部、印尼贸易部、土耳其、中亚、以色列、南非、墨西哥、巴西、阿根廷等官方法律公报、贸易、海关和金融监管机关。每7天一轮；业务相关或出现新线索时加密。未实际核查不得记为已完成。",
+  "editorialPolicy": {
+    "approach": "资讯主体以完整阅读官方原文后的中文翻译、译述为基础，仅适度压缩重复、宣传语及非实质背景。中文官方材料按原文逻辑整理。企业启示单列为分析意见。",
+    "summary": "列表保留约60—120字摘要，正文另写，不以摘要代替正文。",
+    "bodyLength": "一般400—900字；复杂规则可增加，简短名单更正可少于400字。依据原文信息量决定，不能为凑字数编造或机械重复。",
+    "structure": "按原文逻辑，用【发布背景】【具体规定】【适用范围】【条件与例外】【实施安排】等段落标题组织。只选择本条真正需要的段落，保留重要限定和因果关系。每段换行。",
+    "preserve": [
+      "适用主体、物项、技术及地域定义",
+      "具体行为、技术门槛、金额、比例、所有权口径",
+      "许可条件、例外、过渡条款、通知和报告要求",
+      "原始发布日期、实施与到期日期、时区和期限起算点",
+      "拟议与已生效状态，以及执法机关指称与既定事实的区分",
+      "关税及双反案件的涉案产品范围、税号、原产地、程序阶段、企业税率与其他税率、保证金及追溯条件和应诉期限"
+    ],
+    "sourceHandling": "必要时同时阅读新闻稿、正式规则及附件。PDF修订版须区分删除线与现行文字。新闻稿未载明的条件不能自行补齐，无法核实的内容应注明缺口。",
+    "analysis": "正文忠实反映官方内容；主管机关的指控、判断及政策理由注明归属。风险判断、业务建议和延伸推论写入企业启示，并明确为分析。",
+    "metadata": "contentStyle填写中文译述或中文原文整理。正文编辑更新时间放editorialUpdatedAt，保留原始publishedDate和collectedAt；正文扩写不能被记为新政策或政策实质修订。",
+    "revision": "后续新增、补录及修订均按此标准。保留原文直达链接，写入后读回确认正文完整且分段显示。"
+  },
+  "accessPolicy": "网站公开阅读；所有API与MCP写入仅允许由Sites认证、并匹配服务端编辑权限的管理账号。公开访问或仅持有网站访问凭据并不授予写入权限。",
+  "categories": [
+    "出口管制",
+    "经济制裁",
+    "市场准入与产业政策",
+    "对外投资",
+    "关税"
+  ],
+  "tariffPolicy": {
+    "name": "关税",
+    "priorityJurisdictions": [
+      "中国",
+      "美国",
+      "欧盟",
+      "英国",
+      "日本",
+      "韩国"
+    ],
+    "extendedJurisdictions": [
+      "印度",
+      "印尼",
+      "越南",
+      "泰国",
+      "马来西亚",
+      "加拿大",
+      "澳大利亚",
+      "墨西哥",
+      "巴西",
+      "土耳其",
+      "南非"
+    ],
+    "cadence": "本工作台每日北京时间09:30核查窗口；扩展市场每7天轮查，业务相关或出现新线索时加密；任务是否启用以本站关联云任务实际状态为准。",
+    "scope": [
+      "最惠国税率、暂定税率和优惠税率调整",
+      "附加关税、报复性关税、关税配额及排除豁免",
+      "反倾销、反补贴立案及调查程序",
+      "倾销/补贴初裁终裁和产业损害裁定",
+      "临时措施、保证金、最终征税及追溯征税",
+      "行政复审、期中复审、日落复审、新出口商复审和反规避调查",
+      "保障措施及措施延长、暂停、终止或撤销",
+      "影响税率适用的税则归类和原产地规则变化"
+    ],
+    "recordRequirements": [
+      "征税或调查国家/地区与涉案原产国家/地区分别记录",
+      "涉案产品的文字范围、HS/HTS/CN/TARIC税号及排除范围；税号仅作参考时保留限定",
+      "案件编号、主管机关、程序阶段和决定性质",
+      "税率及计税方式、企业单独税率与其他企业税率、保证金与最终税率的区别",
+      "立案日、调查期、损害调查期、公布日、生效日、到期日及追溯期",
+      "登记、抽样、问卷、听证、评论、复审申请等期限及时区",
+      "临时措施、承诺、豁免、过渡安排和适用条件",
+      "官方公告、裁定、正式法规及附件直达链接"
+    ],
+    "rules": [
+      "调查立案不等于已征税；初裁不等于终裁；产业损害裁定不替代倾销/补贴幅度裁定。",
+      "关税、反倾销税和反补贴税是否叠加须依官方依据，不自行相加或推算综合税率。",
+      "同一案件维持一个主记录，程序推进修订原记录并保留历史，避免将每个阶段重复发布为不同案件。",
+      "正式法律文件及附件优先，官方新闻稿和商务部海外信息作线索；原文无法核实则记录缺口。",
+      "未列明的企业税率、税号、日期和期限不推断；通知日期与生效日期分列。",
+      "以正式程序阶段作为eventType；反倾销、反补贴等机制写入topics，使用category=关税。"
+    ]
+  },
+  "coveragePolicy": {
+    "requiredSources": [
+      {
+        "id": "cn-bureau-home",
+        "label": "产业安全与进出口管制局首页",
+        "url": "https://aqygzj.mofcom.gov.cn/"
+      },
+      {
+        "id": "cn-bureau-consultations",
+        "label": "产业安全与进出口管制局综合信息",
+        "url": "https://aqygzj.mofcom.gov.cn/zhxx/index.html"
+      },
+      {
+        "id": "cn-bureau-legislation",
+        "label": "产业安全与进出口管制局法律政策",
+        "url": "https://aqygzj.mofcom.gov.cn/flzc/index.html"
+      },
+      {
+        "id": "cn-mofcom-consultations",
+        "label": "商务部征求意见",
+        "url": "https://www.mofcom.gov.cn/zqyj/"
+      },
+      {
+        "id": "cn-exportcontrol-portal",
+        "label": "中国出口管制信息网",
+        "url": "https://exportcontrol.mofcom.gov.cn/h5/index.shtml"
+      }
+    ],
+    "completionRule": "只有在checkedSources中逐项记录这些核心栏目实际成功核查的完整URL，且gaps为空，才允许保存已完成；访问受限、动态目录为空、仅看首页或搜索摘要均需记录缺口。其他配置来源也仍须逐项核查，核心清单是最低要求而非全站覆盖证明。",
+    "discoveryRule": "先读取主管机关原始栏目，再交叉检索；新公告可能尚未进入搜索索引或转载门户。栏目无正文或返回旧快照时，使用可用原始接口或栏目首页交叉核对，仍不能确认则标为未完成。",
+    "attachmentRule": "同时读取通知、草案、起草说明及关键附件；WPS/DOC等格式须提取核对，不能因格式或搜索未命中跳过。",
+    "priorityRule": "核心市场的法律、规章、执法程序、征求意见和名单变动优先于扩展市场资讯。",
+    "backfillRule": "对遗漏记录原因、原始日期及所属历史窗口，在7日补录范围内回补；补录后保留原运行和其他未核查缺口，不把修正单条描述为全量补查完成。"
+  },
+  "workspaceIsolation": {
+    "siteType": "独立Cloudflare团队工作台",
+    "projectId": null,
+    "publicWebsite": null,
+    "dataPolicy": "此实例使用自己的D1数据库、成员和会话。源码内包含一次性公开资讯快照，不包含源站成员、口令、会话、内部备注或选题池。后续不自动同步或跨站写入。",
+    "automationPolicy": "建议独立配置北京时间09:30核查；目前未迁移或启用任何定时任务、邮件服务或ChatGPT连接。是否更新成功，以本实例实际监测记录为准。"
+  }
+}

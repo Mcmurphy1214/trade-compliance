@@ -1,0 +1,14 @@
+import {build} from 'esbuild';
+import fs from 'node:fs';
+import path from 'node:path';
+const out=path.resolve('pages-upload');
+if(!fs.existsSync('dist/server/index.js'))throw Error('请先运行 npm run build。');
+fs.rmSync(out,{recursive:true,force:true});fs.mkdirSync(out,{recursive:true});
+fs.cpSync('dist/client',out,{recursive:true});
+const result=await build({entryPoints:['worker/pages-entry.mjs'],bundle:true,format:'esm',platform:'browser',target:'es2022',minify:true,alias:{module:'node:module'},external:['node:*','cloudflare:*'],outfile:path.join(out,'_worker.js'),metafile:true,legalComments:'eof'});
+for(const output of Object.values(result.metafile.outputs))for(const item of output.imports)if(!/^(node:|cloudflare:)/.test(item.path))throw Error('单文件 Worker 尚有未打包依赖：'+item.path);
+fs.writeFileSync(path.join(out,'_routes.json'),JSON.stringify({version:1,include:['/*'],exclude:['/_next/*','/fonts/*','/favicon.svg']},null,2));
+fs.writeFileSync(path.join(out,'index.html'),'<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>合规前沿 · 部署检查</title><body><h1>请确认高级模式 Worker 已启用</h1><p>如果看到本页而不是工作台，请按部署说明检查 _worker.js、nodejs_compat 和 DB 绑定。本页不是协作工作台。</p></body></html>');
+const files=[];function walk(dir){for(const e of fs.readdirSync(dir,{withFileTypes:true})){const f=path.join(dir,e.name);if(e.isDirectory())walk(f);else files.push(f);}}walk(out);
+if(files.length>1000||files.some(f=>fs.statSync(f).size>25*1024*1024))throw Error('超过 Cloudflare Pages 拖拽上传文件限制。');
+console.log(JSON.stringify({directory:out,files:files.length,workerBytes:fs.statSync(path.join(out,'_worker.js')).size}));
