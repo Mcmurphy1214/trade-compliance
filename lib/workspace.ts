@@ -1,3 +1,4 @@
+import {anonymizeContent} from "./content-privacy";
 import {env} from "cloudflare:workers";
 import {feed} from "./store";
 import {applyWorkspaceRules} from "./workspace-auto";
@@ -9,7 +10,7 @@ type Raw=Record<string,any>;
 const db=()=>env.DB!;
 function activity(actor:WorkspaceActor,action:string,articleId:string|null,detail:unknown,nonce?:string){
  let sql="INSERT INTO workspace_activity(id,actor_id,actor_name,action,article_id,detail,created_at) ";
- const args:any[]=[crypto.randomUUID(),actor.id,actor.displayName,action,articleId,JSON.stringify(detail),new Date().toISOString()];
+ const args:any[]=[crypto.randomUUID(),actor.id,actor.displayName,action,articleId,JSON.stringify(anonymizeContent(detail)),new Date().toISOString()];
  if(nonce){sql+="SELECT ?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM workspace_pool WHERE article_id=? AND last_mutation=?)";args.push(articleId,nonce);}else sql+="VALUES(?,?,?,?,?,?,?)";
  return db().prepare(sql).bind(...args);
 }
@@ -44,10 +45,10 @@ export async function mutatePool(actor:WorkspaceActor,body:Raw){
  }else if(body.action==="unfollow"){
  if(!follower)return {ok:true,unchanged:true};action="取消本人关注";detail={articleTitle:a.title,userId:actor.id,previousFollowedAt:follower.followed_at};
  }else if(body.action==="edit"){
- note=cleanText(body.note,5000);status=body.status;if(!POOL_STATUSES.includes(status))throw new WorkspaceError(400,"选题状态无效。");
+ note=anonymizeContent(cleanText(body.note,5000));status=body.status;if(!POOL_STATUSES.includes(status))throw new WorkspaceError(400,"选题状态无效。");
  if(note===p!.note&&status===p!.status)return {ok:true,unchanged:true};
  }else if(body.action==="remove"){
- active=0;suppressed=1;action="团队移出";detail={articleTitle:a.title,reason:cleanText(body.reason,1000),previous:{note:p!.note,status:p!.status}};
+ active=0;suppressed=1;action="团队移出";detail={articleTitle:a.title,reason:anonymizeContent(cleanText(body.reason,1000)),previous:{note:p!.note,status:p!.status}};
  if(!detail.reason)throw new WorkspaceError(400,"请填写团队移出原因。");
  }else if(body.action==="restore"){
  if(!p?.suppressed)throw new WorkspaceError(400,"此选题无需恢复。");suppressed=0;action="恢复选题";detail={articleTitle:a.title};
@@ -69,8 +70,8 @@ export async function mutatePool(actor:WorkspaceActor,body:Raw){
  return {ok:true};
 }
 export async function saveRule(actor:WorkspaceActor,body:Raw){
- assertAdmin(actor.role);const name=cleanText(body.name,100);if(!name)throw new WorkspaceError(400,"请填写规则名称。");
- const conditions=parseConditions(body.conditions),enabled=body.enabled!==false,now=new Date().toISOString();
+ assertAdmin(actor.role);const name=anonymizeContent(cleanText(body.name,100));if(!name)throw new WorkspaceError(400,"请填写规则名称。");
+ const conditions=parseConditions(anonymizeContent(body.conditions)),enabled=body.enabled!==false,now=new Date().toISOString();
  const old=body.id?await db().prepare("SELECT * FROM workspace_rules WHERE id=?").bind(body.id).first<Raw>():null;
  if(body.id&&!old)throw new WorkspaceError(404,"规则不存在。");if(old&&body.version!==old.version)throw new WorkspaceError(409,"规则已由其他管理员修改，请刷新。");
  const id=old?.id??crypto.randomUUID(),nonce=crypto.randomUUID();
@@ -81,7 +82,7 @@ export async function saveRule(actor:WorkspaceActor,body:Raw){
 }
 export async function syncRules(actor:WorkspaceActor){assertAdmin(actor.role);const matched=await applyWorkspaceRules((await feed()).articles);await activity(actor,"执行规则",null,{matched}).run();return {ok:true,matched};}
 export async function createMember(actor:WorkspaceActor,body:Raw){
- assertAdmin(actor.role);const username=cleanText(body.username,40).toLowerCase(),name=cleanText(body.displayName,80),role=body.role;
+ assertAdmin(actor.role);const username=cleanText(body.username,40).toLowerCase(),name=anonymizeContent(cleanText(body.displayName,80)),role=body.role;
  if(!/^[a-z0-9][a-z0-9_.-]{2,39}$/.test(username)||!name||!["admin","editor","viewer"].includes(role))throw new WorkspaceError(400,"账号须为3至40位英文、数字或_.-，并填写姓名及有效角色。");
  if(await db().prepare("SELECT id FROM workspace_users WHERE username=?").bind(username).first())throw new WorkspaceError(409,"账号已存在。");
  const id=crypto.randomUUID(),password="TC!"+randomToken().slice(0,20),salt=randomToken(),hash=await hashPassword(password,salt),now=new Date().toISOString();

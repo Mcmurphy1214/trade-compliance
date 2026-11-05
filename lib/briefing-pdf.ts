@@ -62,7 +62,7 @@ export async function generateBriefingPdf(snapshot:BriefingSnapshot,fonts?:FontB
    if(s.text)units.push(unit(s.text));
   }
   const advice=a.regulation?.businessAdvice||a.implications;
-  units.push(unit('对正泰业务的建议 · 分析',{heading:true,bold:true,size:11.4,leading:19,after:8,color:colors.red}));
+  units.push(unit('对公司业务的建议 · 分析',{heading:true,bold:true,size:11.4,leading:19,after:8,color:colors.red}));
   if(advice){
    for(const s of articleSections(advice)){
     if(s.heading)units.push(unit(s.heading,{heading:true,bold:true,size:10,leading:17.5,after:6}));

@@ -1,3 +1,4 @@
+import {anonymizeContent} from "./content-privacy";
 import {zipSync,strToU8} from "fflate";
 import type {Article} from "./types";
 import type {PoolEntry,WorkspaceActor} from "./workspace-types";
@@ -5,7 +6,7 @@ import {EXPORT_FIELDS} from "./workspace-export-fields";
 import type {ExportField} from "./workspace-export-fields";
 export {EXPORT_FIELDS} from "./workspace-export-fields";
 export type ExportRow=Record<typeof EXPORT_FIELDS[number],string>;
-const clean=(v:unknown)=>String(v??"").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g,"");
+const clean=(v:unknown)=>anonymizeContent(String(v??"")).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g,"");
 export function exportRow(a:Article,p:PoolEntry):ExportRow{return Object.fromEntries(Object.entries({"资讯ID":a.id,"资讯标题":a.title,"摘要":a.summary,"资讯内容":a.content,"发布机构":a.authority,"生效状态":a.status,"发布日期":a.publishedDate??"原文未另列","生效日期":a.effectiveDate??"原文未另列","到期日期":a.expiryDate??"原文未另列","板块":a.category,"发布法域":a.jurisdiction,"受影响地区":a.affectedRegions.join("、"),"主题":a.topics.join("、"),"企业启示":a.implications,"原文链接":a.sources.map(s=>`${s.title}\n${s.url}`).join("\n\n"),"公告编号":a.reference,"相关期限":a.deadlines.map(d=>`${d.date} ${d.timezone}：${d.label}`).join("\n"),"核验时间":a.verifiedAt,"团队备注":p.note,"选题状态":p.status}).map(([k,v])=>[k,clean(v)])) as ExportRow;}
 export type ExportSnapshot={id:string;createdAt:string;createdBy:string;fields:ExportField[];rows:ExportRow[];fieldLabels?:Partial<Record<ExportField,string>>;poolVersions:{id:string;version:number}[];formats?:string[];briefing?:import('./briefing-model').BriefingSnapshot};
 const xml=(s:string)=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&apos;");

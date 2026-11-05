@@ -21,11 +21,11 @@ try{
  // Test the same multi-module Worker that `npx wrangler deploy` uploads,
  // without the Pages adapter or any manual schema import.
  const page=await mf.dispatchFetch(origin+'/');assert.equal(page.status,200);const markup=await page.text();assert(markup.includes('团队工作台'));
- const feed=await mf.dispatchFetch(origin+'/api/feed');assert.equal(feed.status,200);assert.equal((await feed.json()).articles.length,56);
+ const feed=await mf.dispatchFetch(origin+'/api/feed');assert.equal(feed.status,200);const news=await feed.json();assert.equal(news.articles.length,56);assert(!/正泰|chint|astronergy/i.test(JSON.stringify(news)));
  const state=await(await mf.dispatchFetch(origin+'/api/workspace')).json();assert.equal(state.user,null);for(const key of ['pool','members','rules','activity'])assert.deepEqual(state[key],[]);
  const follow=await mf.dispatchFetch(origin+'/api/workspace',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({action:'follow',articleId:'anonymous-test',version:0})});assert.equal(follow.status,401);
  assert.equal((await mf.dispatchFetch(origin+'/api/workspace?snapshot=anonymous-test&format=xlsx')).status,401);
- const health=await(await mf.dispatchFetch(origin+'/api/deployment-health')).json();assert.equal(health.ready,true);assert.equal(health.adminInitialized,false);assert.equal(health.schedulesConfigured,false);
+ const health=await(await mf.dispatchFetch(origin+'/api/deployment-health')).json();assert.equal(health.ready,true);assert.equal(health.adminInitialized,false);assert.equal(health.schedulesConfigured,false);assert.equal(health.contentPrivacy,'company-anonymized-v1');
  const asset=markup.match(/src="(\/_next\/[^\"]+\.js)"/)[1];assert.equal((await mf.dispatchFetch(origin+asset)).status,200);
  const font=await mf.dispatchFetch(origin+'/fonts/NotoSansSC-Regular.ttf');assert.equal(font.status,200);await font.body.cancel();
  console.log('PASS Workers deployment: generated config without placeholder IDs; exact multi-module entry and assets; missing DB diagnostics; empty-D1 first request initializes schema; public news and private collaboration; protected exports; readiness endpoint; PDF font.');
