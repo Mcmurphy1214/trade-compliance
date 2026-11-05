@@ -23,7 +23,7 @@ export async function GET(request:Request){try{
   if(!snapshot.briefing)throw new WorkspaceError(409,"旧快照未保存PDF所需的法规与节点资料，请重新生成导出快照。");
   return json({snapshot:snapshot.briefing,id:snapshot.id,checksum:row.checksum},200,{"X-Export-Snapshot":snapshot.id,"X-Export-Checksum":row.checksum});
  }
- if(snapshot.formats&&!snapshot.formats.includes(format!))throw new WorkspaceError(409,"此快照为完整PDF简报；如需Excel或Word，请另外生成所选字段快照。");
+ if(snapshot.formats&&!snapshot.formats.includes(format!))throw new WorkspaceError(409,"此快照未包含所选格式，请重新生成导出快照。");
  const bytes=format==="xlsx"?excelFile(snapshot):wordFile(snapshot);
  return new Response(bytes as unknown as BodyInit,{headers:{...headers,"Content-Type":format==="xlsx"?"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":"application/vnd.openxmlformats-officedocument.wordprocessingml.document","Content-Disposition":`attachment; filename="compliance-${snapshot.id}.${format}"`,"X-Export-Snapshot":snapshot.id,"X-Export-Checksum":row.checksum}});
  }
@@ -47,14 +47,13 @@ export async function POST(request:Request){try{
  if(entries.some(p=>!p))throw new WorkspaceError(409,"部分选题已被移出，请刷新后重新选择。");
  if(body.versions&&entries.some(p=>body.versions[p!.articleId]!==p!.version))throw new WorkspaceError(409,"部分选题内容已由成员修改，请刷新后再导出。");
  const rows=entries.map(p=>{const a=data.articles.find(a=>a.id===p!.articleId);if(!a)throw new WorkspaceError(409,"原资讯已不可用，请刷新。");const full=exportRow(a,p!);return Object.fromEntries(fields.map(f=>[f,full[f]])) as ExportRow;});
- if(!pdfOnly&&rows.some(r=>Object.values(r).some(v=>v.length>32767)))throw new WorkspaceError(400,"某个字段超过Excel单元格32767字符上限；为保证Word与Excel一致，本次不截断内容。可直接选择“生成并下载PDF简报”保留全文。");
  const id=crypto.randomUUID(),now=new Date().toISOString();let briefing;
  if(body.periodStart!==undefined&&typeof body.periodStart!=="string"||body.periodEnd!==undefined&&typeof body.periodEnd!=="string")throw new WorkspaceError(400,"简报日期无效。");
  try{briefing=buildBriefingSnapshot(ids.map(id=>data.articles.find(a=>a.id===id)!),now,{start:body.periodStart,end:body.periodEnd});}catch(e){throw new WorkspaceError(400,e instanceof Error?e.message:"简报日期无效。");}
- const snapshot:ExportSnapshot={id,createdAt:now,createdBy:actor.displayName,fields,rows,fieldLabels:Object.fromEntries(fields.map(f=>[f,EXPORT_LABELS[f]??f])),poolVersions:entries.map(p=>({id:p!.articleId,version:p!.version})),briefing,formats:pdfOnly?["pdf"]:["xlsx","docx","pdf"]};
+ const snapshot:ExportSnapshot={id,createdAt:now,createdBy:actor.displayName,fields,rows,fieldLabels:Object.fromEntries(fields.map(f=>[f,EXPORT_LABELS[f]??f])),poolVersions:entries.map(p=>({id:p!.articleId,version:p!.version})),briefing,formats:pdfOnly?["docx","pdf"]:["xlsx","docx","pdf"]};
  const payload=JSON.stringify(snapshot);if(new TextEncoder().encode(payload).length>1500000)throw new WorkspaceError(400,"导出内容过大，请减少条目分批导出。");const checksum=await digest(payload);
  await env.DB!.batch([env.DB!.prepare("INSERT INTO workspace_exports(id,payload,checksum,created_at,created_by,row_count) VALUES(?,?,?,?,?,?)").bind(id,payload,checksum,now,actor.id,rows.length),env.DB!.prepare("INSERT INTO workspace_activity(id,actor_id,actor_name,action,article_id,detail,created_at) VALUES(?,?,?,'创建导出快照',NULL,?,?)").bind(crypto.randomUUID(),actor.id,actor.displayName,JSON.stringify({snapshotId:id,rowCount:rows.length,checksum,fields}),now)]);
- return json({ok:true,id,checksum,rowCount:rows.length,fields,xlsx:pdfOnly?null:`/api/workspace?snapshot=${id}&format=xlsx`,docx:pdfOnly?null:`/api/workspace?snapshot=${id}&format=docx`,briefing:`/api/workspace?snapshot=${id}&format=briefing`});
+ return json({ok:true,id,checksum,rowCount:rows.length,fields,xlsx:pdfOnly?null:`/api/workspace?snapshot=${id}&format=xlsx`,docx:`/api/workspace?snapshot=${id}&format=docx`,briefing:`/api/workspace?snapshot=${id}&format=briefing`});
  }
  throw new WorkspaceError(400,"未知工作台操作。");
  }catch(e){return failure(e);}}

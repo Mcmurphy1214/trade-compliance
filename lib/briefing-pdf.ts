@@ -3,7 +3,7 @@ import type {PDFPage} from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import type {Article} from './types';
 import type {BriefingSnapshot,BriefingBadge} from './briefing-model';
-import {articleSections,legalStatus,nodeBadges,periodLabel,sourceUrl,isBriefingRegulation} from './briefing-model';
+import {briefingSections,legalStatus,nodeBadges,periodLabel,sourceUrl,isBriefingRegulation} from './briefing-model';
 
 const W=595.28,H=841.89,M=40,PW=W-2*M,MAIN=337,SIDE=150,SX=M+MAIN+28;
 const colors={navy:'#19324B',red:'#B11E3B',ink:'#27384B',muted:'#7B899B',line:'#DDE4ED',panel:'#F5F7FA',link:'#2D5E8C'};
@@ -25,8 +25,10 @@ export async function generateBriefingPdf(snapshot:BriefingSnapshot,fonts?:FontB
  const doc=await PDFDocument.create();doc.registerFontkit(fontkit);
  const bytes=fonts||await browserFonts();
  progress?.('fonts loaded');
- const regular=await doc.embedFont(bytes.regular,{subset:true}),bold=await doc.embedFont(bytes.bold,{subset:true});
- const latinRegular=await doc.embedFont(bytes.latinRegular,{subset:true}),latinBold=await doc.embedFont(bytes.latinBold,{subset:true});
+ // The previous CJK subset lost composite bold glyphs in real PDF viewers.
+ // Embed the complete, static fonts so headings remain visible in every viewer.
+ const regular=await doc.embedFont(bytes.regular),bold=await doc.embedFont(bytes.bold);
+ const latinRegular=await doc.embedFont(bytes.latinRegular),latinBold=await doc.embedFont(bytes.latinBold);
  progress?.('fonts embedded');
  const glyphs=new Set(regular.getCharacterSet()),latinGlyphs=new Set(latinRegular.getCharacterSet()),widths=new Map<string,number>();
  const clean=(s:string)=>String(s||'').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u200b\ufeff]/g,'').replace(/\r\n?/g,'\n').replace(/\t/g,'    ');
@@ -42,7 +44,13 @@ export async function generateBriefingPdf(snapshot:BriefingSnapshot,fonts?:FontB
    let line='',length=0;
    for(const ch of paragraph){
     const key=(strong?'b':'r')+ch;let w=widths.get(key);if(w===undefined){w=fontFor(ch,strong).widthOfTextAtSize(ch,1);widths.set(key,w);}w*=size;
-    if(length+w>width&&line){lines.push(line);line='';length=0;}
+    if(length+w>width&&line){
+     let carry='';
+     if(/[，。！？、；：）】」》]/u.test(ch)||/[（【「《]$/u.test(line)){
+      const chars=Array.from(line);carry=chars.pop()!;line=chars.join('');
+     }
+     lines.push(line);line=carry;length=carry?fontFor(carry,strong).widthOfTextAtSize(carry,size):0;
+    }
     line+=ch;length+=w;
    }
    lines.push(line);
@@ -57,18 +65,10 @@ export async function generateBriefingPdf(snapshot:BriefingSnapshot,fonts?:FontB
  function body(a:Article){
   const units:Unit[]=[];
   if(a.summary)units.push(unit(a.summary,{panel:true,width:MAIN-22,size:9.5,leading:16.2,after:20}));
-  for(const s of articleSections(a.content)){
-   if(s.heading)units.push(unit(s.heading,{heading:true,bold:true,size:11.4,leading:19,after:8}));
+  for(const s of briefingSections(a)){
+   if(s.heading)units.push(unit(s.heading,{heading:true,bold:true,size:11.4,leading:19,after:8,color:s.analysis?colors.red:colors.ink}));
    if(s.text)units.push(unit(s.text));
   }
-  const advice=a.regulation?.businessAdvice||a.implications;
-  units.push(unit('对公司业务的建议 · 分析',{heading:true,bold:true,size:11.4,leading:19,after:8,color:colors.red}));
-  if(advice){
-   for(const s of articleSections(advice)){
-    if(s.heading)units.push(unit(s.heading,{heading:true,bold:true,size:10,leading:17.5,after:6}));
-    if(s.text)units.push(unit(s.text));
-   }
-  }else units.push(unit('本条尚无专项业务分析，请结合实际产品、交易主体与交易路径另行评估。'));
   return units;
  }
  function side(a:Article){
@@ -110,9 +110,10 @@ export async function generateBriefingPdf(snapshot:BriefingSnapshot,fonts?:FontB
  const plans:ArticlePlan[]=snapshot.articles.map(article=>{
   const pending=body(article),aside=side(article),pages:ArticlePlan['pages']=[];
   while(pending.length||aside.length){
-   const title=wrap(article.title+(pages.length?'（续）':''),PW,19.7,true),bodyTop=175+title.length*28;
-   const needed=Math.max(pending.reduce((sum,u)=>sum+height(u),0),aside.reduce((sum,u)=>sum+height(u),0));
-   const h=Math.min(2000,Math.max(H,bodyTop+needed+62));
+   const title=wrap(article.title+(pages.length?'（续）':''),PW,19.7,true);
+   const statusHeight=Math.max(41,26+wrap(legalStatus(article),PW-185,9.2,true).length*13);
+   const bodyTop=94+title.length*28+18+statusHeight+22;
+   const h=H; // A4 portrait on every page; overflowing text continues on a new page.
    const space=h-bodyTop-62;
    pages.push({height:h,body:pending.length?take(pending,space):[],side:aside.length?take(aside,space):[],title,bodyTop});
   }
@@ -187,11 +188,12 @@ export async function generateBriefingPdf(snapshot:BriefingSnapshot,fonts?:FontB
   const a=plan.article,page=articlePages[i][j];
   text(page,`${String(i+1).padStart(2,'0')} / ${a.jurisdiction} / ${a.category}`,M,69,9,true,colors.red);
   let y=94;for(const line of p.title){text(page,line,M,y,19.7,true,colors.navy);y+=28;}
-  rule(page,y+5,colors.red,1.7);rect(page,M,y+18,PW,41,'#F0F2F5');
+  const statusLines=wrap(legalStatus(a),PW-185,9.2,true);
+  rule(page,y+5,colors.red,1.7);rect(page,M,y+18,PW,Math.max(41,26+statusLines.length*13),'#F0F2F5');
   text(page,'发布日期',M+12,y+23,7.5,false,colors.muted);text(page,a.publishedDate||'原文未明确',M+12,y+38,9.5,true,colors.navy);
   text(page,'状态',M+165,y+23,7.5,false,colors.muted);
-  const statusLines=wrap(legalStatus(a),PW-185,9.2,true);for(const [n,line]of statusLines.entries())text(page,line,M+165,y+38+n*13,9.2,true,colors.red);
-  const bodyTop=y+81;
+  for(const [n,line]of statusLines.entries())text(page,line,M+165,y+38+n*13,9.2,true,colors.red);
+  const bodyTop=p.bodyTop;
   drawUnits(page,p.body,M,bodyTop,MAIN);drawUnits(page,p.side,SX,bodyTop,SIDE);
   page.drawLine({start:{x:SX-14,y:page.getHeight()-bodyTop},end:{x:SX-14,y:54},color:color(colors.line),thickness:.6});
  }));

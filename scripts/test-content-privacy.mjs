@@ -31,7 +31,7 @@ const seed=JSON.parse(fs.readFileSync('lib/seed.json','utf8'));
 assert(!/正泰|chint|astronergy/i.test(JSON.stringify(seed)),'All bundled article values must be anonymous');
 const original={...seed[0],id:'privacy-article',title:name+'业务公告',implications:name+'及CHINT业务建议',history:[{date:'2026-11-04',note:name+'历史记录'}],sources:[{title:name+'官方公告',url:originalUrl}],regulation:{kind:'法规',changeSummary:name+'更新内容',businessAdvice:'Astronergy适用条件',effectiveStatus:'待生效'}};
 assert(anonymizeArticle(original).companyRelevant,'Business priority must survive removal of names');
-const payload=JSON.stringify(original),snapshot={id:'privacy-export',createdAt:'2026-11-04',createdBy:name,fields:['资讯标题','企业启示','原文链接'],rows:[{'资讯标题':name+'标题','企业启示':name+'建议','原文链接':originalUrl}],briefing:{articles:[original]}};
+const payload=JSON.stringify(original),snapshot={id:'privacy-export',createdAt:'2026-11-04',createdBy:name,fields:['资讯标题','企业启示','原文链接'],rows:[{'资讯标题':name+'标题','企业启示':name+'建议','原文链接':originalUrl}],briefing:{templateVersion:1,createdAt:"2026-11-04T01:00:00Z",periodStart:"2026-11-04",periodEnd:"2026-11-04",articles:[original]}};
 const exported=JSON.stringify(snapshot);
 sql.prepare('INSERT INTO articles(id,payload,version,updated_at) VALUES(?,?,7,?)').run(original.id,payload,'2026-11-04');
 sql.prepare('INSERT INTO article_revisions(id,article_id,payload,created_at) VALUES(?,?,?,?)').run('rev',original.id,payload,'2026-11-03');

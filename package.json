@@ -21,7 +21,8 @@
     "build:upload": "node scripts/build-pages-upload.mjs",
     "test:workers": "node scripts/test-workers-deployment.mjs",
     "test:pages": "node scripts/test-pages-upload.mjs",
-    "test:oauth": "node scripts/test-monitor-oauth.mjs"
+    "test:oauth": "node scripts/test-monitor-oauth.mjs",
+    "test:exports": "node scripts/test-export-layout.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

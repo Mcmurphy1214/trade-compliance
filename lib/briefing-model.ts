@@ -55,3 +55,12 @@ export function articleSections(content:string){
  }).filter(s=>!/^业务分析参考$/.test(s.heading));
 }
 export function sourceUrl(raw:string){try{const u=new URL(raw);return /^https?:$/.test(u.protocol)?u.href:null;}catch{return null;}}
+export function briefingSections(a:Article){
+ const sections:{heading:string;text:string;analysis?:boolean}[]=[];
+ if(a.regulation?.changeSummary)sections.push({heading:'更新内容',text:a.regulation.changeSummary});
+ sections.push(...articleSections(a.content));
+ const advice=a.implications||a.regulation?.businessAdvice||'本条尚无专项业务分析，请结合实际产品、交易主体与交易路径另行评估。';
+ sections.push({heading:'对公司业务的建议 · 分析',text:'',analysis:true},...articleSections(advice).map(s=>({...s,analysis:true})));
+ if(a.regulation?.businessAdvice&&a.regulation.businessAdvice!==advice)sections.push({heading:'法规适用提示 · 分析',text:a.regulation.businessAdvice,analysis:true});
+ return sections;
+}
