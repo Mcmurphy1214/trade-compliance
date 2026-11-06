@@ -1,13 +1,26 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import {Miniflare} from 'miniflare';
+import {Miniflare,createFetchMock} from 'miniflare';
+import {monitorOAuthFailure} from '../lib/monitor-oauth-errors.ts';
 
+const marker='sensitive-value-must-not-be-rendered';
+assert.equal(monitorOAuthFailure({name:'CimdFetchError',description:marker},'request').code,'client_metadata_unavailable');
+assert.equal(monitorOAuthFailure({code:'invalid_target',description:marker},'request').code,'resource_mismatch');
+assert.equal(monitorOAuthFailure({code:'invalid_request',description:'Invalid redirect URI '+marker},'request').code,'redirect_mismatch');
+assert.equal(monitorOAuthFailure({code:'invalid_request',description:'PKCE '+marker},'request').code,'pkce_invalid');
+for(const phase of ['request','client','consent','login','grant'])assert(!JSON.stringify(monitorOAuthFailure({name:'Error',description:marker},phase)).includes(marker));
 const root=path.resolve('dist/server'),config=JSON.parse(fs.readFileSync(path.join(root,'wrangler.json'),'utf8'));
 assert(config.kv_namespaces.some(k=>k.binding==='OAUTH_KV'&&!k.id));
 const entry=path.resolve(root,config.main),files=[];function walk(dir){for(const e of fs.readdirSync(dir,{withFileTypes:true})){const f=path.join(dir,e.name);if(e.isDirectory())walk(f);else if(/\.(js|mjs)$/.test(f))files.push(f);}}walk(root);
 const origin='https://tradecompliance-t.online',resource=origin+'/mcp';
-const mf=new Miniflare({modules:[entry,...files.filter(f=>f!==entry)].map(f=>({type:'ESModule',path:f})),modulesRoot:root,compatibilityDate:config.compatibility_date,compatibilityFlags:config.compatibility_flags,d1Databases:['DB'],kvNamespaces:['OAUTH_KV'],assets:{directory:path.resolve(root,config.assets.directory),binding:'ASSETS',routerConfig:{invoke_user_worker_ahead_of_assets:false,has_user_worker:true}}});
+const clientMetadata=JSON.parse(fs.readFileSync('scripts/fixtures/chatgpt-oauth-client.json','utf8'));
+const signing=await crypto.subtle.generateKey({name:'RSASSA-PKCS1-v1_5',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},true,['sign','verify']);
+const publicJwk={...await crypto.subtle.exportKey('jwk',signing.publicKey),kid:'test-only-cimd-key',use:'sig',alg:'RS256'};
+const fetchMock=createFetchMock();fetchMock.disableNetConnect();
+fetchMock.get('https://chatgpt.com').intercept({path:'/oauth/client.json'}).reply(200,JSON.stringify(clientMetadata),{headers:{'Content-Type':'application/json','Cache-Control':'public, max-age=3600'}}).persist();
+fetchMock.get('https://chatgpt.com').intercept({path:'/oauth/jwks.json'}).reply(200,JSON.stringify({keys:[publicJwk]}),{headers:{'Content-Type':'application/json','Cache-Control':'public, max-age=3600'}}).persist();
+const mf=new Miniflare({fetchMock,modules:[entry,...files.filter(f=>f!==entry)].map(f=>({type:'ESModule',path:f})),modulesRoot:root,compatibilityDate:config.compatibility_date,compatibilityFlags:config.compatibility_flags,d1Databases:['DB'],kvNamespaces:['OAUTH_KV'],assets:{directory:path.resolve(root,config.assets.directory),binding:'ASSETS',routerConfig:{invoke_user_worker_ahead_of_assets:false,has_user_worker:true}}});
 const request=(p,options={})=>mf.dispatchFetch(new URL(p,origin),{redirect:'manual',...options});
 const cookies=r=>r.headers.getSetCookie().map(c=>c.split(';')[0]).join('; ');
 async function token(body){return request('/oauth/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(body).toString()});}
@@ -48,6 +61,26 @@ try{
  const replay=await token({grant_type:'authorization_code',client_id:client.client_id,code,code_verifier:verifier,redirect_uri:'https://chatgpt.com/oauth/callback',resource});assert.equal(replay.status,400);
  await db.prepare("UPDATE workspace_users SET disabled=0,version=version+1 WHERE id='oauth-admin'").run();transaction=await begin();const readGrant=await approve(transaction,['monitor:read'],newPassword);assert.equal(readGrant.status,302);const readCode=new URL(readGrant.headers.get('location')).searchParams.get('code');
  const readTokenResponse=await token({grant_type:'authorization_code',client_id:client.client_id,code:readCode,code_verifier:verifier,redirect_uri:'https://chatgpt.com/oauth/callback',resource});assert.equal(readTokenResponse.status,200);const readToken=await readTokenResponse.json();assert(!readToken.refresh_token,'No offline consent must mean no refresh token');assert.equal((await rpc(readToken.access_token,'verify_monitor_connection')).status,403,'Read-only OAuth cannot write');
+ // Exercise the real ChatGPT CIMD shape (both methods, legacy JWT preference,
+ // official callback) instead of testing only the unrelated DCR path.
+ const cimdQuery=new URLSearchParams(query);cimdQuery.set('client_id',clientMetadata.client_id);cimdQuery.set('redirect_uri',clientMetadata.redirect_uris[0]);
+ const wrongAudience=new URLSearchParams(cimdQuery);wrongAudience.set('resource',origin);
+ const wrongAudienceResponse=await request('/authorize?'+wrongAudience);assert.equal(wrongAudienceResponse.status,400);assert((await wrongAudienceResponse.text()).includes('resource_mismatch'));
+ const wrongCallback=new URLSearchParams(cimdQuery);wrongCallback.set('redirect_uri','https://attacker.test/secret-state-value');
+ const wrongCallbackResponse=await request('/authorize?'+wrongCallback);assert.equal(wrongCallbackResponse.status,400);const wrongCallbackText=await wrongCallbackResponse.text();assert(wrongCallbackText.includes('redirect_mismatch'));assert(!wrongCallbackText.includes('secret-state-value'));
+ async function cimdGrant(){
+  const begun=await request('/authorize?'+cimdQuery);assert.equal(begun.status,200);const html=await begun.text();assert(html.includes('chatgpt.com'));assert(html.includes('管理员账号'));
+  const consent={cookie:cookies(begun),handle:html.match(/name="handle" value="([^"]+)"/)[1]};
+  const granted=await approve(consent,undefined,newPassword);assert.equal(granted.status,302);
+  const location=new URL(granted.headers.get('location'));assert.equal(location.origin,'https://chatgpt.com');assert.equal(location.pathname,'/connector_platform_oauth_redirect');
+  return location.searchParams.get('code');
+ }
+ const cimdCode=await cimdGrant(),now=Math.floor(Date.now()/1000),encode=v=>Buffer.from(JSON.stringify(v)).toString('base64url');
+ const assertionBody=encode({alg:'RS256',kid:publicJwk.kid,typ:'JWT'})+'.'+encode({iss:clientMetadata.client_id,sub:clientMetadata.client_id,aud:origin+'/oauth/token',iat:now,exp:now+60,jti:crypto.randomUUID()});
+ const assertionSignature=Buffer.from(await crypto.subtle.sign('RSASSA-PKCS1-v1_5',signing.privateKey,new TextEncoder().encode(assertionBody))).toString('base64url');
+ const cimdExchanged=await token({grant_type:'authorization_code',client_id:clientMetadata.client_id,code:cimdCode,code_verifier:verifier,redirect_uri:clientMetadata.redirect_uris[0],resource,client_assertion_type:'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',client_assertion:assertionBody+'.'+assertionSignature});
+ assert.equal(cimdExchanged.status,200);const cimdTokens=await cimdExchanged.json();assert(cimdTokens.access_token&&cimdTokens.refresh_token);assert.equal((await rpc(cimdTokens.access_token,'verify_monitor_connection')).status,200);
+ const cimdPublicCode=await cimdGrant();const cimdPublic=await token({grant_type:'authorization_code',client_id:clientMetadata.client_id,code:cimdPublicCode,code_verifier:verifier,redirect_uri:clientMetadata.redirect_uris[0],resource});assert.equal(cimdPublic.status,200,'Plural CIMD methods must also permit public PKCE exchange');
  const activity=JSON.stringify((await db.prepare('SELECT detail FROM workspace_activity').all()).results);assert(!activity.includes(newPassword));assert(!activity.includes(tokens.access_token));
- console.log('PASS monitor OAuth: discovery and DCR; no anonymous write; admin bootstrap gate; CSRF and escaped consent; first-password gate; redirect validation; single-use consent and code; PKCE exchange; persistent non-article write proof; token refresh and audience isolation; no member/export access; account revocation; read-only scope enforcement; no passwords/tokens in audit.');
+ console.log('PASS monitor OAuth: discovery, DCR and official ChatGPT CIMD with RS256/private_key_jwt and public PKCE; safe resource/redirect diagnostics; no anonymous write; admin bootstrap gate; CSRF and escaped consent; first-password gate; redirect validation; single-use consent and code; PKCE exchange; persistent non-article write proof; token refresh and audience isolation; no member/export access; account revocation; read-only scope enforcement; no passwords/tokens in audit.');
 }finally{await mf.dispose();}

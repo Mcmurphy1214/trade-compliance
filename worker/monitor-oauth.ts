@@ -3,6 +3,7 @@ import type {OAuthHelpers,ConsentDescription,OAuthResourceContext} from "@cloudf
 import {workspaceActor,login,sessionCookie,constantEqual,digest,assertBrowserOrigin} from "../lib/workspace-auth";
 import {withMonitorIdentity} from "../lib/monitor-context";
 import {ensureDatabase} from "../lib/database-setup";
+import {monitorOAuthFailure} from "../lib/monitor-oauth-errors";
 
 const ORIGIN="https://tradecompliance-t.online";
 const RESOURCE=ORIGIN+"/mcp";
@@ -23,17 +24,20 @@ function consent(details:ConsentDescription,handle:string,signedIn:boolean){
 }
 async function authorize(request:Request,env:AuthEnv){
  const oauth=env.OAUTH_PROVIDER;
+ let phase='request';
  try{
   if(request.method==="GET"){
    const auth=await oauth.parseAuthRequest(request);
    if(auth.scope.some(s=>!SCOPES.includes(s)))return page('<h1>请求包含不支持的权限</h1>',undefined,400);
    const count=await env.DB.prepare('SELECT COUNT(*) AS n FROM workspace_users').first<{n:number}>();
    if(!Number(count?.n))return page('<h1>请先初始化管理员</h1><p>本站没有默认密码，也没有开放管理员注册。请由站点所有者先在 Cloudflare D1 控制台完成管理员初始化，再重新发起连接。</p>',undefined,409);
+   phase='client';
    const details=await oauth.describeConsent(auth),transaction=await oauth.beginConsent(auth),actor=await workspaceActor(request);
    return page(consent(details,transaction.handle,!!actor),transaction.headers);
   }
   if(request.method!=="POST")return new Response(null,{status:405,headers:{Allow:"GET, POST"}});
   assertBrowserOrigin(request);
+  phase='consent';
   if(Number(request.headers.get('content-length')||0)>20000)return page('<h1>请求内容过大</h1>',undefined,413);
   const text=await request.text();if(text.length>12000)return page('<h1>请求内容过大</h1>',undefined,413);
   const form=new URLSearchParams(text),handle=form.get('handle')??'';
@@ -44,6 +48,7 @@ async function authorize(request:Request,env:AuthEnv){
   const approved=await oauth.approveConsent(request,handle,{scope:form.getAll('scope')});
   let actor=await workspaceActor(request),newCookie:string|undefined;
   if(!actor){
+   phase='login';
    const token=await login(request,form.get('username'),form.get('password'));
    const headers=new Headers(request.headers);headers.set('Cookie',sessionCookie(token).split(';')[0]);
    actor=await workspaceActor(new Request(request.url,{headers}));newCookie=sessionCookie(token);
@@ -51,14 +56,15 @@ async function authorize(request:Request,env:AuthEnv){
   if(!actor||actor.role!=="admin"||actor.mustChangePassword)return page('<h1>需要管理员授权</h1><p>请先在工作台完成首次改密，并以管理员身份重新发起连接。</p>',undefined,403);
   const user=await env.DB.prepare('SELECT version FROM workspace_users WHERE id=? AND disabled=0').bind(actor.id).first<{version:number}>();
   if(!user)return page('<h1>账号不可用</h1>',undefined,403);
+  phase='grant';
   const result=await oauth.completeAuthorization({request:approved.request,userId:actor.id,metadata:{purpose:"trade-compliance-monitor"},scope:approved.request.scope,props:{userId:actor.id,accountVersion:user.version}});
   approved.headers.set('Location',result.redirectTo);if(newCookie)approved.headers.append('Set-Cookie',newCookie);
   await env.DB.prepare("INSERT INTO workspace_activity(id,actor_id,actor_name,action,article_id,detail,created_at) VALUES(?,?,?,'授权资讯自动更新',NULL,?,?)").bind(crypto.randomUUID(),actor.id,actor.displayName,JSON.stringify({clientId:approved.request.clientId,scope:approved.request.scope}),new Date().toISOString()).run();
   return new Response(null,{status:302,headers:approved.headers});
  }catch(error){
-  if(error instanceof AuthorizationError||error instanceof CimdFetchError)return page('<h1>授权未完成</h1><p>连接请求无效、已过期或已使用，请从 ChatGPT 重新发起连接。</p>',undefined,400);
-  // Never render a submitted password, authorization code or token in an error.
-  return page('<h1>授权未完成</h1><p>请检查管理员账号和密码，或稍后重新发起连接。</p>',undefined,400);
+  const failure=monitorOAuthFailure(error instanceof AuthorizationError||error instanceof CimdFetchError?error:{},phase);
+  console.warn('Monitor OAuth failure',{code:failure.code,phase});
+  return page(`<h1>授权未完成</h1><p>${escape(failure.message)}</p><p class="small">原因代码：${escape(failure.code)}</p>`,undefined,400);
  }
 }
 
