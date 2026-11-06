@@ -14,13 +14,19 @@ type Props={userId:string;accountVersion:number};
 const escape=(value:string)=>value.replace(/[&<>"']/g,c=>`&#${c.charCodeAt(0)};`);
 const challenge={"Cache-Control":"no-store","WWW-Authenticate":`Bearer resource_metadata="${ORIGIN}/.well-known/oauth-protected-resource/mcp"`};
 const styles="body{font:16px/1.8 system-ui,'Microsoft YaHei',sans-serif;background:#f2f5fa;color:#19324b;padding:32px}main{max-width:660px;margin:auto;background:white;padding:30px;border-radius:12px}h1{font-size:25px}label{display:block;margin:14px 0}input:not([type=checkbox]){display:block;width:95%;padding:10px;font-size:16px;border:1px solid #ccd7e3;border-radius:6px}button{padding:12px 20px;margin:14px 10px 0 0;background:#245dcc;color:white;border:0;border-radius:6px;font-size:16px}button[value=deny]{background:#63758a}.note{background:#f3f6fa;padding:16px}.small{font-size:13px;color:#64758a}";
-function page(body:string,headers=new Headers(),status=200){
+function page(body:string,headers=new Headers(),status=200,validatedRedirectUri?:string){
  // HTML form POSTs under no-referrer send Origin: null, so the strict
  // same-origin CSRF check rejects even a legitimate consent submission.
  // strict-origin preserves that Origin without exposing authorization query
  // parameters in Referer (including to the registered callback).
  headers.set("Content-Type","text/html;charset=UTF-8");headers.set("Cache-Control","no-store");headers.set("X-Content-Type-Options","nosniff");headers.set("X-Frame-Options","DENY");headers.set("Referrer-Policy","strict-origin");
- headers.set("Content-Security-Policy","default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
+ // Chromium also applies form-action to the POST's subsequent redirect. An
+ // OAuth consent form must permit its validated registered callback origin;
+ // otherwise the grant is issued but navigation to ChatGPT is blocked.
+ const callbackOrigin=validatedRedirectUri?new URL(validatedRedirectUri).origin:'';
+ if(callbackOrigin&&!/^https?:\/\/(?:[a-z0-9.-]+|\[[a-f0-9:]+\])(?::[0-9]+)?$/i.test(callbackOrigin))throw new AuthorizationError('invalid_request',{description:'Invalid redirect URI origin'});
+ const formTargets=callbackOrigin&&callbackOrigin!==ORIGIN?`'self' ${callbackOrigin}`:"'self'";
+ headers.set("Content-Security-Policy",`default-src 'none'; style-src 'unsafe-inline'; form-action ${formTargets}; frame-ancestors 'none'; base-uri 'none'`);
  return new Response(`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>授权资讯更新 · 合规前沿</title><style>${styles}</style><main>${body}</main></html>`,{status,headers});
 }
 function consent(details:ConsentDescription,handle:string,signedIn:boolean){
@@ -45,7 +51,7 @@ async function authorize(request:Request,env:AuthEnv){
    phase='client';
    const details=await oauth.describeConsent(auth),actor=await workspaceActor(request);
    const transaction=await beginMonitorConsent(env.DB,request,auth,!!actor);
-   return page(consent(details,transaction.handle,!!actor),transaction.headers);
+   return page(consent(details,transaction.handle,!!actor),transaction.headers,200,auth.redirectUri);
   }
   if(request.method!=="POST")return new Response(null,{status:405,headers:{Allow:"GET, POST"}});
   phase='origin';

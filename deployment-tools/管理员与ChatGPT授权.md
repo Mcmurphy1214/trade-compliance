@@ -43,6 +43,8 @@ ChatGPT 网页 → Plugins → 加号 → Add custom MCP server（添加自定�
 
 授权页使用 `Referrer-Policy: strict-origin`：不把授权 URL 的查询参数放入 Referer，同时保留浏览器表单 POST 的真实 Origin。不要改为 `no-referrer`，否则普通 HTML 表单会提交 `Origin: null` 并被来源校验拒绝。修复部署后应从插件重新发起授权，旧页面仍可能沿用旧策略；无需再次创建插件。来源不匹配会显示 `origin_mismatch`，不得通过允许 null Origin 或取消来源校验解决。
 
+授权表单 CSP 的 `form-action` 必须同时允许本站和本次已验证、已注册回调的 origin。Chromium 会检查表单提交后的跨站重定向；仅写 `'self'` 会在后台已经签发授权码后阻止跳回 ChatGPT，用户再次提交才看到凭据已使用。允许的回调必须来自 `parseAuthRequest` 的验证结果，不得直接使用未验证的查询参数、通配符或删除 CSP。浏览器验收必须使用真实 ChatGPT 回调；只测试本站回调不能覆盖这类故障。诊断用拒绝流程可验证跨站跳转，不创建真实管理员授权。
+
 短期同意凭据存入 D1 的 `oauth_consents`，不再依赖 KV 的即时读写。数据库只保留随机句柄的哈希、会话/浏览器绑定的哈希及 AES-GCM 加密的已验证请求，10分钟失效。已登录的管理员直接绑定当前工作台会话，不要求额外同意 Cookie；未登录时仍要求独立的 Secure/HttpOnly/SameSite Cookie。提交用一条 `DELETE ... RETURNING` 原子消费，重复或并发提交只有一次成功；之后由官方 OAuth 库重新验证客户端、精确回调、资源和 PKCE，再签发授权码。客户端注册、授权码与令牌仍由该库使用 OAUTH_KV 管理。
 
 `consent_cookie_missing` 表示未登录浏览器丢失安全 Cookie；`consent_session_changed` 表示会话变更；`consent_expired_or_used` 表示超过10分钟或已提交；`consent_storage_invalid` 表示加密数据无法校验。不要索取 Cookie、句柄、密码或完整授权 URL。发布后须关闭旧页面，从现有插件重新发起连接。仅有表单测试或本地令牌测试不能证明用户的实际连接已完成。
