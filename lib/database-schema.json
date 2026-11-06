@@ -19,5 +19,7 @@
   "CREATE TABLE IF NOT EXISTS `workspace_sessions` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`user_id` text NOT NULL,\n\t`expires_at` text NOT NULL,\n\t`created_at` text NOT NULL\n);",
   "CREATE INDEX IF NOT EXISTS `workspace_sessions_user_idx` ON `workspace_sessions` (`user_id`);",
   "CREATE TABLE IF NOT EXISTS `workspace_users` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`username` text NOT NULL,\n\t`display_name` text NOT NULL,\n\t`role` text NOT NULL,\n\t`password_hash` text NOT NULL,\n\t`salt` text NOT NULL,\n\t`disabled` integer DEFAULT 0 NOT NULL,\n\t`must_change_password` integer DEFAULT 1 NOT NULL,\n\t`version` integer DEFAULT 1 NOT NULL,\n\t`last_mutation` text DEFAULT '' NOT NULL,\n\t`created_at` text NOT NULL,\n\t`updated_at` text NOT NULL\n);",
-  "CREATE UNIQUE INDEX IF NOT EXISTS `workspace_users_username_unique` ON `workspace_users` (`username`);"
+  "CREATE UNIQUE INDEX IF NOT EXISTS `workspace_users_username_unique` ON `workspace_users` (`username`);",
+  "CREATE TABLE IF NOT EXISTS `oauth_consents` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`binding_mode` text NOT NULL,\n\t`binding_hash` text NOT NULL,\n\t`payload` text NOT NULL,\n\t`expires_at` integer NOT NULL\n);",
+  "CREATE INDEX IF NOT EXISTS `oauth_consents_expiry_idx` ON `oauth_consents` (`expires_at`);"
 ]

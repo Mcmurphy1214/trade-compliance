@@ -1,9 +1,10 @@
-import {OAuthProvider,AuthorizationError,CimdFetchError} from "@cloudflare/workers-oauth-provider";
+import {OAuthProvider,AuthorizationError,CimdFetchError,authorizationErrorRedirect} from "@cloudflare/workers-oauth-provider";
 import type {OAuthHelpers,ConsentDescription,OAuthResourceContext} from "@cloudflare/workers-oauth-provider";
 import {workspaceActor,login,sessionCookie,constantEqual,digest,assertBrowserOrigin} from "../lib/workspace-auth";
 import {withMonitorIdentity} from "../lib/monitor-context";
 import {ensureDatabase} from "../lib/database-setup";
 import {monitorOAuthFailure} from "../lib/monitor-oauth-errors";
+import {beginMonitorConsent,consumeMonitorConsent,MonitorConsentError} from "../lib/monitor-consent";
 
 const ORIGIN="https://tradecompliance-t.online";
 const RESOURCE=ORIGIN+"/mcp";
@@ -42,7 +43,8 @@ async function authorize(request:Request,env:AuthEnv){
    const count=await env.DB.prepare('SELECT COUNT(*) AS n FROM workspace_users').first<{n:number}>();
    if(!Number(count?.n))return page('<h1>请先初始化管理员</h1><p>本站没有默认密码，也没有开放管理员注册。请由站点所有者先在 Cloudflare D1 控制台完成管理员初始化，再重新发起连接。</p>',undefined,409);
    phase='client';
-   const details=await oauth.describeConsent(auth),transaction=await oauth.beginConsent(auth),actor=await workspaceActor(request);
+   const details=await oauth.describeConsent(auth),actor=await workspaceActor(request);
+   const transaction=await beginMonitorConsent(env.DB,request,auth,!!actor);
    return page(consent(details,transaction.handle,!!actor),transaction.headers);
   }
   if(request.method!=="POST")return new Response(null,{status:405,headers:{Allow:"GET, POST"}});
@@ -52,11 +54,22 @@ async function authorize(request:Request,env:AuthEnv){
   if(Number(request.headers.get('content-length')||0)>20000)return page('<h1>请求内容过大</h1>',undefined,413);
   const text=await request.text();if(text.length>12000)return page('<h1>请求内容过大</h1>',undefined,413);
   const form=new URLSearchParams(text),handle=form.get('handle')??'';
+  const approved=await consumeMonitorConsent(env.DB,request,handle);
+  // Revalidate the encrypted server-side request with the OAuth library. The
+  // form supplies no client, callback, state, PKCE or resource parameters.
+  const original=approved.request;
+  const params=new URLSearchParams({client_id:original.clientId,response_type:original.responseType,redirect_uri:original.redirectUri,scope:original.scope.join(' '),state:original.state});
+  if(original.resource)params.set('resource',original.resource);
+  if(original.codeChallenge)params.set('code_challenge',original.codeChallenge);
+  if(original.codeChallengeMethod)params.set('code_challenge_method',original.codeChallengeMethod);
+  approved.request=await oauth.parseAuthRequest(new Request(ORIGIN+'/authorize?'+params));
   if(form.get('decision')!=="approve"){
-   const denied=await oauth.denyConsent(request,handle);return new Response(null,{status:302,headers:denied.headers});
+   approved.headers.set('Location',authorizationErrorRedirect(approved.request,'access_denied'));
+   return new Response(null,{status:302,headers:approved.headers});
   }
-  // Consume and validate the browser-bound, one-use consent before attempting login.
-  const approved=await oauth.approveConsent(request,handle,{scope:form.getAll('scope')});
+  const scopes=[...new Set(form.getAll('scope'))];
+  if(scopes.some(scope=>!SCOPES.includes(scope)))throw new AuthorizationError('invalid_scope',{description:'Unsupported approved scope'});
+  approved.request.scope=scopes;
   let actor=await workspaceActor(request),newCookie:string|undefined;
   if(!actor){
    phase='login';
@@ -73,7 +86,7 @@ async function authorize(request:Request,env:AuthEnv){
   await env.DB.prepare("INSERT INTO workspace_activity(id,actor_id,actor_name,action,article_id,detail,created_at) VALUES(?,?,?,'授权资讯自动更新',NULL,?,?)").bind(crypto.randomUUID(),actor.id,actor.displayName,JSON.stringify({clientId:approved.request.clientId,scope:approved.request.scope}),new Date().toISOString()).run();
   return new Response(null,{status:302,headers:approved.headers});
  }catch(error){
-  const failure=monitorOAuthFailure(error instanceof AuthorizationError||error instanceof CimdFetchError?error:{},phase);
+  const failure=monitorOAuthFailure(error instanceof AuthorizationError||error instanceof CimdFetchError||error instanceof MonitorConsentError?error:{},phase);
   console.warn('Monitor OAuth failure',{code:failure.code,phase});
   return page(`<h1>授权未完成</h1><p>${escape(failure.message)}</p><p class="small">原因代码：${escape(failure.code)}</p>`,undefined,400);
  }
