@@ -14,7 +14,11 @@ const escape=(value:string)=>value.replace(/[&<>"']/g,c=>`&#${c.charCodeAt(0)};`
 const challenge={"Cache-Control":"no-store","WWW-Authenticate":`Bearer resource_metadata="${ORIGIN}/.well-known/oauth-protected-resource/mcp"`};
 const styles="body{font:16px/1.8 system-ui,'Microsoft YaHei',sans-serif;background:#f2f5fa;color:#19324b;padding:32px}main{max-width:660px;margin:auto;background:white;padding:30px;border-radius:12px}h1{font-size:25px}label{display:block;margin:14px 0}input:not([type=checkbox]){display:block;width:95%;padding:10px;font-size:16px;border:1px solid #ccd7e3;border-radius:6px}button{padding:12px 20px;margin:14px 10px 0 0;background:#245dcc;color:white;border:0;border-radius:6px;font-size:16px}button[value=deny]{background:#63758a}.note{background:#f3f6fa;padding:16px}.small{font-size:13px;color:#64758a}";
 function page(body:string,headers=new Headers(),status=200){
- headers.set("Content-Type","text/html;charset=UTF-8");headers.set("Cache-Control","no-store");headers.set("X-Content-Type-Options","nosniff");headers.set("X-Frame-Options","DENY");headers.set("Referrer-Policy","no-referrer");
+ // HTML form POSTs under no-referrer send Origin: null, so the strict
+ // same-origin CSRF check rejects even a legitimate consent submission.
+ // strict-origin preserves that Origin without exposing authorization query
+ // parameters in Referer (including to the registered callback).
+ headers.set("Content-Type","text/html;charset=UTF-8");headers.set("Cache-Control","no-store");headers.set("X-Content-Type-Options","nosniff");headers.set("X-Frame-Options","DENY");headers.set("Referrer-Policy","strict-origin");
  headers.set("Content-Security-Policy","default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
  return new Response(`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>授权资讯更新 · 合规前沿</title><style>${styles}</style><main>${body}</main></html>`,{status,headers});
 }
@@ -42,6 +46,7 @@ async function authorize(request:Request,env:AuthEnv){
    return page(consent(details,transaction.handle,!!actor),transaction.headers);
   }
   if(request.method!=="POST")return new Response(null,{status:405,headers:{Allow:"GET, POST"}});
+  phase='origin';
   assertBrowserOrigin(request);
   phase='consent';
   if(Number(request.headers.get('content-length')||0)>20000)return page('<h1>请求内容过大</h1>',undefined,413);

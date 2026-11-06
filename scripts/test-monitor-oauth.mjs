@@ -9,7 +9,8 @@ assert.equal(monitorOAuthFailure({name:'CimdFetchError',description:marker},'req
 assert.equal(monitorOAuthFailure({code:'invalid_target',description:marker},'request').code,'resource_mismatch');
 assert.equal(monitorOAuthFailure({code:'invalid_request',description:'Invalid redirect URI '+marker},'request').code,'redirect_mismatch');
 assert.equal(monitorOAuthFailure({code:'invalid_request',description:'PKCE '+marker},'request').code,'pkce_invalid');
-for(const phase of ['request','client','consent','login','grant'])assert(!JSON.stringify(monitorOAuthFailure({name:'Error',description:marker},phase)).includes(marker));
+assert.equal(monitorOAuthFailure({},'origin').code,'origin_mismatch');
+for(const phase of ['request','origin','client','consent','login','grant'])assert(!JSON.stringify(monitorOAuthFailure({name:'Error',description:marker},phase)).includes(marker));
 const root=path.resolve('dist/server'),config=JSON.parse(fs.readFileSync(path.join(root,'wrangler.json'),'utf8'));
 assert(config.kv_namespaces.some(k=>k.binding==='OAUTH_KV'&&!k.id));
 const entry=path.resolve(root,config.main),files=[];function walk(dir){for(const e of fs.readdirSync(dir,{withFileTypes:true})){const f=path.join(dir,e.name);if(e.isDirectory())walk(f);else if(/\.(js|mjs)$/.test(f))files.push(f);}}walk(root);
@@ -34,10 +35,18 @@ try{
  const db=await mf.getD1Database('DB'),password='Test-Only-Original-Password!',salt='test-only-oauth-salt',key=await crypto.subtle.importKey('raw',new TextEncoder().encode(password),'PBKDF2',false,['deriveBits']);
  const hash=Buffer.from(await crypto.subtle.deriveBits({name:'PBKDF2',salt:new TextEncoder().encode(salt),iterations:100000,hash:'SHA-256'},key,256)).toString('hex');
  await db.prepare("INSERT INTO workspace_users(id,username,display_name,role,password_hash,salt,must_change_password,created_at,updated_at) VALUES('oauth-admin','oauth-admin','Test Admin','admin',?,?,1,'now','now')").bind(hash,salt).run();
- async function begin(q=query){const res=await request('/authorize?'+q);assert.equal(res.status,200);const html=await res.text();assert(!html.includes('<script>bad()'));assert(html.includes('&#60;script&#62;'));const handle=html.match(/name="handle" value="([^"]+)"/)[1];return {handle,cookie:cookies(res)};}
+ async function begin(q=query){const res=await request('/authorize?'+q);assert.equal(res.status,200);const html=await res.text();assert(!html.includes('<script>bad()'));assert(html.includes('&#60;script&#62;'));const handle=html.match(/name="handle" value="([^"]+)"/)[1];return {handle,cookie:cookies(res),referrerPolicy:res.headers.get('referrer-policy')};}
  async function approve(transaction,scopes=['monitor:read','monitor:write','offline_access'],pwd=password,extra={}){return request('/authorize',{method:'POST',headers:{Origin:origin,Cookie:transaction.cookie,'Content-Type':'application/x-www-form-urlencoded',...extra},body:new URLSearchParams([['handle',transaction.handle],['decision','approve'],['username','oauth-admin'],['password',pwd],...scopes.map(s=>['scope',s])]).toString()});}
  let transaction=await begin();assert.notEqual((await approve(transaction,undefined,password,{Cookie:''})).status,302,'Missing consent cookie must fail closed');
  transaction=await begin();assert.notEqual((await approve(transaction,undefined,password,{Origin:'https://attacker.test'})).status,302);
+ // Fetch §3.2: non-CORS form POSTs under no-referrer serialize Origin as
+ // null. Keep refusing it; fix the page policy rather than bypassing CSRF.
+ transaction=await begin();const nullOrigin=await approve(transaction,undefined,password,{Origin:'null'});assert.equal(nullOrigin.status,400);assert((await nullOrigin.text()).includes('origin_mismatch'));
+ transaction=await begin();assert.equal(transaction.referrerPolicy,'strict-origin','Only the origin, never the authorization query, may be sent as Referer');
+ const formOrigin=transaction.referrerPolicy==='no-referrer'?'null':origin;
+ const denied=await request('/authorize',{method:'POST',headers:{Origin:formOrigin,Cookie:transaction.cookie,'Content-Type':'application/x-www-form-urlencoded','Sec-Fetch-Site':'same-origin'},body:new URLSearchParams({handle:transaction.handle,decision:'deny'}).toString()});
+ assert.equal(denied.status,302,'Real browser form denial must reach consent validation');assert.equal(new URL(denied.headers.get('location')).searchParams.get('error'),'access_denied');
+ transaction=await begin();assert.equal((await approve(transaction,undefined,password,{'Sec-Fetch-Site':'cross-site'})).status,400,'Cross-site submissions remain forbidden even with a forged Origin');
  transaction=await begin();assert.equal((await approve(transaction)).status,403,'First-password gate must apply to OAuth');
  const login=await request('/api/workspace',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({action:'login',username:'oauth-admin',password})});assert.equal(login.status,200);
  const newPassword='Test-Only-Replacement-Password!';const changed=await request('/api/workspace',{method:'POST',headers:{Origin:origin,Cookie:cookies(login),'Content-Type':'application/json'},body:JSON.stringify({action:'change_password',currentPassword:password,newPassword})});assert.equal(changed.status,200);

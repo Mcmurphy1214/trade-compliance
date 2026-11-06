@@ -41,6 +41,8 @@ ChatGPT 网页 → Plugins → 加号 → Add custom MCP server（添加自定�
 
 如果当前账号没有添加自定义 MCP 的入口，需要先解决平台权限；不能改成 No authentication 公开写接口。
 
+授权页使用 `Referrer-Policy: strict-origin`：不把授权 URL 的查询参数放入 Referer，同时保留浏览器表单 POST 的真实 Origin。不要改为 `no-referrer`，否则普通 HTML 表单会提交 `Origin: null` 并被来源校验拒绝。修复部署后应从插件重新发起授权，旧页面仍可能沿用旧策略；无需再次创建插件。来源不匹配会显示 `origin_mismatch`，不得通过允许 null Origin 或取消来源校验解决。
+
 ## 4. 真实写入验收
 
 在启用了新插件的会话调用 verify_monitor_connection。必须同时返回：

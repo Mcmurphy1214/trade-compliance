@@ -1,6 +1,7 @@
 // Only fixed, reviewed messages leave the server. Never render the request URL,
 // state, code, challenge, submitted credentials or arbitrary exception text.
 export function monitorOAuthFailure(error:{name?:string;code?:string;description?:string},phase:string){
+ if(phase==='origin')return {code:'origin_mismatch',message:'浏览器提交的来源与本站不匹配。请关闭旧授权页面，从 ChatGPT 插件重新发起连接。'};
  if(error.name==='CimdFetchError')return {code:'client_metadata_unavailable',message:'暂时无法读取或校验 ChatGPT 客户端资料。请从 ChatGPT 插件重新发起连接；若持续失败，可在插件配置中改用动态客户端注册（DCR）。'};
  if(error.code==='invalid_target')return {code:'resource_mismatch',message:'授权请求的资源地址与本站不匹配。请核对插件的服务器地址为 https://tradecompliance-t.online/mcp，再重新连接。'};
  if(error.code==='invalid_scope')return {code:'scope_mismatch',message:'请求的权限与本站支持的权限不匹配。请刷新插件工具后重新连接。'};
