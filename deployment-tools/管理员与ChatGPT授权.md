@@ -31,7 +31,9 @@ ChatGPT 网页 → Plugins → 加号 → Add custom MCP server（添加自定�
 - 名称：合规前沿 Cloudflare工作台
 - Server URL：https://tradecompliance-t.online/mcp
 - Authentication：OAuth
-- 客户端注册：优先 CIMD，兼容 DCR；不用自行填写服务令牌或客户端秘密。
+- 客户端注册：动态客户端注册（DCR）；不用自行填写服务令牌或客户端秘密。本站已停用 CIMD 发现，避开生产连接中 `client_metadata_unavailable` 的客户端资料解析失败。
+
+已创建的插件若仍使用 CIMD，请进入现有插件的配置，将客户端注册方式改为 DCR，刷新配置后重新连接。旧的 `client_id=https://chatgpt.com/oauth/client.json` 授权链接不能继续使用，会显示 `client_registration_required`。若当前界面不支持编辑注册方式，使用同一服务器地址重新创建 OAuth 插件即可，本站发现信息只提供 DCR。
 
 创建并安装后发起连接。浏览器将打开本站 /authorize 页面；使用完成改密的管理员账号登录，核对应用发布域名与授权回调域名，明确同意公开资讯读取、资讯更新及保持连接这三项权限。
 

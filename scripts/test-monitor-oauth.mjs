@@ -15,18 +15,15 @@ assert(config.kv_namespaces.some(k=>k.binding==='OAUTH_KV'&&!k.id));
 const entry=path.resolve(root,config.main),files=[];function walk(dir){for(const e of fs.readdirSync(dir,{withFileTypes:true})){const f=path.join(dir,e.name);if(e.isDirectory())walk(f);else if(/\.(js|mjs)$/.test(f))files.push(f);}}walk(root);
 const origin='https://tradecompliance-t.online',resource=origin+'/mcp';
 const clientMetadata=JSON.parse(fs.readFileSync('scripts/fixtures/chatgpt-oauth-client.json','utf8'));
-const signing=await crypto.subtle.generateKey({name:'RSASSA-PKCS1-v1_5',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},true,['sign','verify']);
-const publicJwk={...await crypto.subtle.exportKey('jwk',signing.publicKey),kid:'test-only-cimd-key',use:'sig',alg:'RS256'};
+// No external network is permitted: DCR must survive unavailable client metadata.
 const fetchMock=createFetchMock();fetchMock.disableNetConnect();
-fetchMock.get('https://chatgpt.com').intercept({path:'/oauth/client.json'}).reply(200,JSON.stringify(clientMetadata),{headers:{'Content-Type':'application/json','Cache-Control':'public, max-age=3600'}}).persist();
-fetchMock.get('https://chatgpt.com').intercept({path:'/oauth/jwks.json'}).reply(200,JSON.stringify({keys:[publicJwk]}),{headers:{'Content-Type':'application/json','Cache-Control':'public, max-age=3600'}}).persist();
 const mf=new Miniflare({fetchMock,modules:[entry,...files.filter(f=>f!==entry)].map(f=>({type:'ESModule',path:f})),modulesRoot:root,compatibilityDate:config.compatibility_date,compatibilityFlags:config.compatibility_flags,d1Databases:['DB'],kvNamespaces:['OAUTH_KV'],assets:{directory:path.resolve(root,config.assets.directory),binding:'ASSETS',routerConfig:{invoke_user_worker_ahead_of_assets:false,has_user_worker:true}}});
 const request=(p,options={})=>mf.dispatchFetch(new URL(p,origin),{redirect:'manual',...options});
 const cookies=r=>r.headers.getSetCookie().map(c=>c.split(';')[0]).join('; ');
 async function token(body){return request('/oauth/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(body).toString()});}
 async function rpc(access,name,args={}){return request('/mcp',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+access},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name,arguments:args}})});}
 try{
- const metadata=await(await request('/.well-known/oauth-authorization-server')).json();assert.equal(metadata.issuer,origin);assert.equal(metadata.client_id_metadata_document_supported,true);
+ const metadata=await(await request('/.well-known/oauth-authorization-server')).json();assert.equal(metadata.issuer,origin);assert.notEqual(metadata.client_id_metadata_document_supported,true);assert.equal(metadata.registration_endpoint,origin+'/oauth/register');assert(!metadata.token_endpoint_auth_methods_supported.includes('private_key_jwt'));
  const protectedMetadata=await(await request('/.well-known/oauth-protected-resource/mcp')).json();assert.equal(protectedMetadata.resource,resource);
  const noAuth=await request('/mcp');assert.equal(noAuth.status,401);assert(noAuth.headers.get('www-authenticate').includes('resource_metadata'));
  const registered=await request('/oauth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({client_name:'ChatGPT <script>bad()</script>',redirect_uris:['https://chatgpt.com/oauth/callback'],token_endpoint_auth_method:'none',grant_types:['authorization_code','refresh_token'],response_types:['code']})});assert.equal(registered.status,201);
@@ -61,26 +58,25 @@ try{
  const replay=await token({grant_type:'authorization_code',client_id:client.client_id,code,code_verifier:verifier,redirect_uri:'https://chatgpt.com/oauth/callback',resource});assert.equal(replay.status,400);
  await db.prepare("UPDATE workspace_users SET disabled=0,version=version+1 WHERE id='oauth-admin'").run();transaction=await begin();const readGrant=await approve(transaction,['monitor:read'],newPassword);assert.equal(readGrant.status,302);const readCode=new URL(readGrant.headers.get('location')).searchParams.get('code');
  const readTokenResponse=await token({grant_type:'authorization_code',client_id:client.client_id,code:readCode,code_verifier:verifier,redirect_uri:'https://chatgpt.com/oauth/callback',resource});assert.equal(readTokenResponse.status,200);const readToken=await readTokenResponse.json();assert(!readToken.refresh_token,'No offline consent must mean no refresh token');assert.equal((await rpc(readToken.access_token,'verify_monitor_connection')).status,403,'Read-only OAuth cannot write');
- // Exercise the real ChatGPT CIMD shape (both methods, legacy JWT preference,
- // official callback) instead of testing only the unrelated DCR path.
- const cimdQuery=new URLSearchParams(query);cimdQuery.set('client_id',clientMetadata.client_id);cimdQuery.set('redirect_uri',clientMetadata.redirect_uris[0]);
- const wrongAudience=new URLSearchParams(cimdQuery);wrongAudience.set('resource',origin);
+ // Cached CIMD requests get a precise migration instruction, with no fetch to
+ // ChatGPT and no weakening of authentication or callback checks.
+ const staleCimd=new URLSearchParams(query);staleCimd.set('client_id',clientMetadata.client_id);staleCimd.set('redirect_uri',clientMetadata.redirect_uris[0]);
+ const staleResponse=await request('/authorize?'+staleCimd);assert.equal(staleResponse.status,400);const staleText=await staleResponse.text();assert(staleText.includes('client_registration_required'));assert(staleText.includes('DCR'));
+ const wrongAudience=new URLSearchParams(query);wrongAudience.set('resource',origin);
  const wrongAudienceResponse=await request('/authorize?'+wrongAudience);assert.equal(wrongAudienceResponse.status,400);assert((await wrongAudienceResponse.text()).includes('resource_mismatch'));
- const wrongCallback=new URLSearchParams(cimdQuery);wrongCallback.set('redirect_uri','https://attacker.test/secret-state-value');
- const wrongCallbackResponse=await request('/authorize?'+wrongCallback);assert.equal(wrongCallbackResponse.status,400);const wrongCallbackText=await wrongCallbackResponse.text();assert(wrongCallbackText.includes('redirect_mismatch'));assert(!wrongCallbackText.includes('secret-state-value'));
- async function cimdGrant(){
-  const begun=await request('/authorize?'+cimdQuery);assert.equal(begun.status,200);const html=await begun.text();assert(html.includes('chatgpt.com'));assert(html.includes('管理员账号'));
-  const consent={cookie:cookies(begun),handle:html.match(/name="handle" value="([^"]+)"/)[1]};
-  const granted=await approve(consent,undefined,newPassword);assert.equal(granted.status,302);
-  const location=new URL(granted.headers.get('location'));assert.equal(location.origin,'https://chatgpt.com');assert.equal(location.pathname,'/connector_platform_oauth_redirect');
-  return location.searchParams.get('code');
- }
- const cimdCode=await cimdGrant(),now=Math.floor(Date.now()/1000),encode=v=>Buffer.from(JSON.stringify(v)).toString('base64url');
- const assertionBody=encode({alg:'RS256',kid:publicJwk.kid,typ:'JWT'})+'.'+encode({iss:clientMetadata.client_id,sub:clientMetadata.client_id,aud:origin+'/oauth/token',iat:now,exp:now+60,jti:crypto.randomUUID()});
- const assertionSignature=Buffer.from(await crypto.subtle.sign('RSASSA-PKCS1-v1_5',signing.privateKey,new TextEncoder().encode(assertionBody))).toString('base64url');
- const cimdExchanged=await token({grant_type:'authorization_code',client_id:clientMetadata.client_id,code:cimdCode,code_verifier:verifier,redirect_uri:clientMetadata.redirect_uris[0],resource,client_assertion_type:'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',client_assertion:assertionBody+'.'+assertionSignature});
- assert.equal(cimdExchanged.status,200);const cimdTokens=await cimdExchanged.json();assert(cimdTokens.access_token&&cimdTokens.refresh_token);assert.equal((await rpc(cimdTokens.access_token,'verify_monitor_connection')).status,200);
- const cimdPublicCode=await cimdGrant();const cimdPublic=await token({grant_type:'authorization_code',client_id:clientMetadata.client_id,code:cimdPublicCode,code_verifier:verifier,redirect_uri:clientMetadata.redirect_uris[0],resource});assert.equal(cimdPublic.status,200,'Plural CIMD methods must also permit public PKCE exchange');
+ // Also cover the confidential DCR exchange ChatGPT may select, with its actual
+ // callback and a client secret kept only in test memory.
+ const confidentialRegistered=await request('/oauth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({client_name:'ChatGPT DCR',redirect_uris:clientMetadata.redirect_uris,token_endpoint_auth_method:'client_secret_post',grant_types:['authorization_code','refresh_token'],response_types:['code']})});assert.equal(confidentialRegistered.status,201);
+ const confidential=await confidentialRegistered.json();assert(confidential.client_id&&confidential.client_secret);
+ const confidentialQuery=new URLSearchParams(query);confidentialQuery.set('client_id',confidential.client_id);confidentialQuery.set('redirect_uri',clientMetadata.redirect_uris[0]);
+ const begun=await request('/authorize?'+confidentialQuery);assert.equal(begun.status,200);const html=await begun.text();assert(html.includes('chatgpt.com'));
+ const confidentialConsent={cookie:cookies(begun),handle:html.match(/name="handle" value="([^"]+)"/)[1]};
+ const confidentialGrant=await approve(confidentialConsent,undefined,newPassword);assert.equal(confidentialGrant.status,302);const confidentialCode=new URL(confidentialGrant.headers.get('location')).searchParams.get('code');
+ const tokenArgs={grant_type:'authorization_code',client_id:confidential.client_id,code:confidentialCode,code_verifier:verifier,redirect_uri:clientMetadata.redirect_uris[0],resource};
+ assert.equal((await token({...tokenArgs,client_secret:'incorrect-test-only-secret'})).status,401);
+ const confidentialExchanged=await token({...tokenArgs,client_secret:confidential.client_secret});assert.equal(confidentialExchanged.status,200);const confidentialTokens=await confidentialExchanged.json();assert(confidentialTokens.access_token&&confidentialTokens.refresh_token);
+ assert.equal((await rpc(confidentialTokens.access_token,'verify_monitor_connection')).status,200);
+ const confidentialRefresh=await token({grant_type:'refresh_token',client_id:confidential.client_id,client_secret:confidential.client_secret,refresh_token:confidentialTokens.refresh_token,resource});assert.equal(confidentialRefresh.status,200);
  const activity=JSON.stringify((await db.prepare('SELECT detail FROM workspace_activity').all()).results);assert(!activity.includes(newPassword));assert(!activity.includes(tokens.access_token));
- console.log('PASS monitor OAuth: discovery, DCR and official ChatGPT CIMD with RS256/private_key_jwt and public PKCE; safe resource/redirect diagnostics; no anonymous write; admin bootstrap gate; CSRF and escaped consent; first-password gate; redirect validation; single-use consent and code; PKCE exchange; persistent non-article write proof; token refresh and audience isolation; no member/export access; account revocation; read-only scope enforcement; no passwords/tokens in audit.');
+ console.log('PASS monitor OAuth: DCR-only discovery with all external metadata unreachable; public PKCE and confidential DCR plus refresh; stale CIMD migration instructions; safe resource/redirect diagnostics; no anonymous write; admin bootstrap gate; CSRF and escaped consent; first-password gate; redirect validation; single-use consent and code; PKCE exchange; persistent non-article write proof; token refresh and audience isolation; no member/export access; account revocation; read-only scope enforcement; no passwords/tokens in audit.');
 }finally{await mf.dispose();}

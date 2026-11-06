@@ -27,6 +27,12 @@ async function authorize(request:Request,env:AuthEnv){
  let phase='request';
  try{
   if(request.method==="GET"){
+   // Some connections cached CIMD before it failed in production. A DCR-only
+   // server must ask the client to register again, never trust a supplied URL
+   // as a registration or silently rewrite the authorization request.
+   if(/^https?:\/\//i.test(new URL(request.url).searchParams.get('client_id')??'')){
+    return page('<h1>请更新插件注册方式</h1><p>本站已切换为动态客户端注册（DCR）。请在 ChatGPT 插件设置中将客户端注册方式改为 DCR，刷新配置后重新连接。</p><p class="small">服务器地址：https://tradecompliance-t.online/mcp<br>认证方式：OAuth<br>原因代码：client_registration_required</p>',undefined,400);
+   }
    const auth=await oauth.parseAuthRequest(request);
    if(auth.scope.some(s=>!SCOPES.includes(s)))return page('<h1>请求包含不支持的权限</h1>',undefined,400);
    const count=await env.DB.prepare('SELECT COUNT(*) AS n FROM workspace_users').first<{n:number}>();
@@ -73,7 +79,9 @@ export function createMonitorOAuth(app:App){
  const provider=new OAuthProvider<Cloudflare.Env>({
   apiRoute:'/mcp',authorizeEndpoint:'/authorize',tokenEndpoint:'/oauth/token',clientRegistrationEndpoint:'/oauth/register',
   resourceMetadata:{resource:RESOURCE,authorization_servers:[ORIGIN]},requiredScopes:['monitor:read'],scopesSupported:SCOPES,
-  clientIdMetadataDocumentEnabled:true,accessTokenTTL:3600,refreshTokenTTL:2592000,refreshTokenIdleTTL:2592000,
+  // Production CIMD metadata resolution failed for the owner's connection.
+  // DCR keeps registration local and preserves OAuth, PKCE and admin checks.
+  clientIdMetadataDocumentEnabled:false,accessTokenTTL:3600,refreshTokenTTL:2592000,refreshTokenIdleTTL:2592000,
   tokenExchangeCallback:async options=>({refreshTokenTTL:options.scope.includes('offline_access')?2592000:0}),
   apiHandler:{async fetch(request,env,context){
    const ctx=context as OAuthResourceContext<Props>,props=ctx.props;
