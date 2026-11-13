@@ -147,3 +147,31 @@ CREATE TABLE IF NOT EXISTS `oauth_consents` (
 );
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `oauth_consents_expiry_idx` ON `oauth_consents` (`expires_at`);
+
+CREATE TABLE IF NOT EXISTS `article_publications` (
+	`article_id` text PRIMARY KEY NOT NULL,
+	`title` text NOT NULL,
+	`archived` integer DEFAULT 0 NOT NULL,
+	`reason` text NOT NULL,
+	`actor_id` text NOT NULL,
+	`actor_name` text NOT NULL,
+	`updated_at` text NOT NULL,
+	`version` integer DEFAULT 0 NOT NULL,
+	`last_mutation` text NOT NULL
+);
+
+
+CREATE TABLE IF NOT EXISTS `topic_track_revisions` (
+	`id` text PRIMARY KEY NOT NULL,
+	`topic_id` text NOT NULL,
+	`payload` text NOT NULL,
+	`created_at` text NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS `topic_tracks` (
+	`id` text PRIMARY KEY NOT NULL,
+	`payload` text NOT NULL,
+	`version` integer DEFAULT 0 NOT NULL,
+	`updated_at` text NOT NULL,
+	`last_mutation` text NOT NULL
+);

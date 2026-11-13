@@ -36,6 +36,20 @@
       "when": 1793933464120,
       "tag": "0004_far_pride",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1794473918822,
+      "tag": "0005_skinny_the_hunter",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1794554189957,
+      "tag": "0006_topic_tracking",
+      "breakpoints": true
     }
   ]
 }

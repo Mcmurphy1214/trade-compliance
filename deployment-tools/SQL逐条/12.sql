@@ -1,4 +1,3 @@
---> statement-breakpoint
 CREATE TABLE IF NOT EXISTS `workspace_exports` (
 	`id` text PRIMARY KEY NOT NULL,
 	`payload` text NOT NULL,

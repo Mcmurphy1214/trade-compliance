@@ -5,5 +5,6 @@ export type RuleConditions={categories:string[];jurisdictions:string[];topics:st
 export type WorkspaceRule={id:string;name:string;conditions:RuleConditions;enabled:boolean;version:number;updatedAt:string;updatedBy:string};
 export type WorkspaceMember={id:string;username:string;displayName:string;role:WorkspaceRole;disabled:boolean;mustChangePassword:boolean;version:number;createdAt:string};
 export type WorkspaceActivity={id:string;actorName:string;action:string;articleId:string|null;detail:string;at:string};
-export type WorkspaceState={user:WorkspaceActor|null;pool:PoolEntry[];rules:WorkspaceRule[];activity:WorkspaceActivity[];members:WorkspaceMember[];signInUrl:string;serverTime:string};
+export type ArticlePublication={articleId:string;title:string;archived:boolean;reason:string;actorName:string;updatedAt:string;version:number};
+export type WorkspaceState={user:WorkspaceActor|null;pool:PoolEntry[];rules:WorkspaceRule[];activity:WorkspaceActivity[];members:WorkspaceMember[];articlePublications:ArticlePublication[];signInUrl:string;serverTime:string};
 export const POOL_STATUSES=["待研判","研判中","拟纳入简报","已归档"];

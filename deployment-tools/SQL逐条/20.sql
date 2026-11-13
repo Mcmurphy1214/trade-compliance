@@ -1,4 +1,3 @@
---> statement-breakpoint
 CREATE TABLE IF NOT EXISTS `workspace_users` (
 	`id` text PRIMARY KEY NOT NULL,
 	`username` text NOT NULL,

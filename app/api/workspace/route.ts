@@ -7,6 +7,7 @@ import {selectedExportFields,EXPORT_LABELS} from "../../../lib/workspace-export-
 import type {ExportRow} from "../../../lib/workspace-export";
 import type {ExportSnapshot} from "../../../lib/workspace-export";
 import {feed} from "../../../lib/store";
+import {setArticleVisibility} from "../../../lib/article-publication";
 import {buildBriefingSnapshot} from "../../../lib/briefing-model";
 export const dynamic="force-dynamic";
 const headers={"Cache-Control":"private, no-store","Vary":"Cookie","X-Content-Type-Options":"nosniff","X-Robots-Tag":"noindex, nofollow"};
@@ -35,6 +36,7 @@ export async function POST(request:Request){try{
  if(body.action==="login"){const token=await login(request,body.username,body.password);return json({ok:true},200,{"Set-Cookie":sessionCookie(token)});}
  if(body.action==="logout"){const token=sessionToken(request);if(token)await env.DB!.prepare("DELETE FROM workspace_sessions WHERE id=?").bind(await digest(token)).run();return json({ok:true},200,{"Set-Cookie":sessionCookie("",0)});}
  const actor=await requireActor(request,body.action==="change_password");
+ if(body.action==="set_article_visibility")return json(await setArticleVisibility(actor,body));
  if(body.action==="change_password")return json(await changePassword(actor,request,body));
  if(["follow","unfollow","edit","remove","restore"].includes(body.action))return json(await mutatePool(actor,body));
  if(body.action==="save_rule")return json(await saveRule(actor,body));

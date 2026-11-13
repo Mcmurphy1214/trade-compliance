@@ -2,6 +2,7 @@ import {anonymizeContent} from "./content-privacy";
 import {env} from "cloudflare:workers";
 import {feed} from "./store";
 import {applyWorkspaceRules} from "./workspace-auto";
+import {articlePublications} from "./article-publication";
 import {hashPassword,randomToken,validPassword,sessionToken,digest,constantEqual} from "./workspace-auth";
 import {WorkspaceError,assertAdmin,assertEditor,cleanText,parseConditions} from "./workspace-policy";
 import {POOL_STATUSES} from "./workspace-types";
@@ -16,17 +17,17 @@ function activity(actor:WorkspaceActor,action:string,articleId:string|null,detai
 }
 const ruleObject=(r:Raw):WorkspaceRule=>({id:r.id,name:r.name,conditions:JSON.parse(r.conditions),enabled:!!r.enabled,version:r.version,updatedAt:r.updated_at,updatedBy:r.updated_by});
 export async function workspaceState(actor:WorkspaceActor|null):Promise<WorkspaceState>{
- const base={user:actor,pool:[],rules:[],activity:[],members:[],signInUrl:"/?view=login",serverTime:new Date().toISOString()};
+ const base={user:actor,pool:[],rules:[],activity:[],members:[],articlePublications:[],signInUrl:"/?view=login",serverTime:new Date().toISOString()};
  if(!actor||actor.mustChangePassword)return base;
  const [entries,follows,matches,rules,logs,members]=await db().batch<Raw>([
- db().prepare("SELECT * FROM workspace_pool ORDER BY updated_at DESC"),
+ db().prepare("SELECT * FROM workspace_pool WHERE NOT EXISTS(SELECT 1 FROM article_publications p WHERE p.article_id=workspace_pool.article_id AND p.archived=1) ORDER BY updated_at DESC"),
  db().prepare("SELECT * FROM workspace_follows WHERE active=1"),
  db().prepare("SELECT * FROM workspace_matches"),
  db().prepare("SELECT * FROM workspace_rules ORDER BY updated_at DESC"),
  db().prepare("SELECT * FROM workspace_activity ORDER BY created_at DESC,rowid DESC LIMIT 250"),
  db().prepare(actor.role==="admin"?"SELECT id,username,display_name,role,disabled,must_change_password,version,created_at FROM workspace_users ORDER BY created_at":"SELECT id FROM workspace_users WHERE 0")
  ]);
- return {...base,pool:entries.results.map((p:Raw):PoolEntry=>({articleId:p.article_id,active:!!p.active,suppressed:!!p.suppressed,note:p.note,status:p.status,version:p.version,updatedAt:p.updated_at,followers:follows.results.filter((f:Raw)=>f.article_id===p.article_id).map((f:Raw)=>({userId:f.user_id,name:f.display_name,at:f.followed_at})),rules:matches.results.filter((r:Raw)=>r.article_id===p.article_id).map((r:Raw)=>({id:r.rule_id,name:r.rule_name,version:r.rule_version,at:r.matched_at}))})),rules:rules.results.map(ruleObject),activity:logs.results.map((r:Raw)=>({id:r.id,actorName:r.actor_name,action:r.action,articleId:r.article_id,detail:r.detail,at:r.created_at})),members:members.results.map((u:Raw)=>({id:u.id,username:u.username,displayName:u.display_name,role:u.role,disabled:!!u.disabled,mustChangePassword:!!u.must_change_password,version:u.version,createdAt:u.created_at}))};
+ return {...base,articlePublications:actor.role==="admin"?await articlePublications():[],pool:entries.results.map((p:Raw):PoolEntry=>({articleId:p.article_id,active:!!p.active,suppressed:!!p.suppressed,note:p.note,status:p.status,version:p.version,updatedAt:p.updated_at,followers:follows.results.filter((f:Raw)=>f.article_id===p.article_id).map((f:Raw)=>({userId:f.user_id,name:f.display_name,at:f.followed_at})),rules:matches.results.filter((r:Raw)=>r.article_id===p.article_id).map((r:Raw)=>({id:r.rule_id,name:r.rule_name,version:r.rule_version,at:r.matched_at}))})),rules:rules.results.map(ruleObject),activity:logs.results.map((r:Raw)=>({id:r.id,actorName:r.actor_name,action:r.action,articleId:r.article_id,detail:r.detail,at:r.created_at})),members:members.results.map((u:Raw)=>({id:u.id,username:u.username,displayName:u.display_name,role:u.role,disabled:!!u.disabled,mustChangePassword:!!u.must_change_password,version:u.version,createdAt:u.created_at}))};
 }
 async function knownArticle(id:unknown){if(typeof id!=="string"||id.length>100)throw new WorkspaceError(400,"资讯编号无效。");const a=(await feed()).articles.find(a=>a.id===id);if(!a)throw new WorkspaceError(404,"资讯不存在。");return a;}
 export async function mutatePool(actor:WorkspaceActor,body:Raw){
@@ -55,7 +56,7 @@ export async function mutatePool(actor:WorkspaceActor,body:Raw){
  }else throw new WorkspaceError(400,"未知选题操作。");
  if(!p)commands.push(db().prepare("INSERT OR IGNORE INTO workspace_pool(article_id,active,suppressed,note,status,version,last_mutation,created_at,updated_at) VALUES(?,0,0,'','待研判',0,'',?,?)").bind(id,now,now));
  const updateIndex=commands.length;
- commands.push(db().prepare("UPDATE workspace_pool SET active=?,suppressed=?,note=?,status=?,version=version+1,last_mutation=?,updated_at=? WHERE article_id=? AND version=?").bind(active,suppressed,note,status,nonce,now,id,version));
+ commands.push(db().prepare("UPDATE workspace_pool SET active=?,suppressed=?,note=?,status=?,version=version+1,last_mutation=?,updated_at=? WHERE article_id=? AND version=? AND NOT EXISTS(SELECT 1 FROM article_publications WHERE article_id=workspace_pool.article_id AND archived=1)").bind(active,suppressed,note,status,nonce,now,id,version));
  if(body.action==="follow")commands.push(db().prepare("INSERT INTO workspace_follows(article_id,user_id,display_name,followed_at,active) SELECT ?,?,?,?,1 WHERE EXISTS(SELECT 1 FROM workspace_pool WHERE article_id=? AND last_mutation=?) ON CONFLICT(article_id,user_id) DO UPDATE SET active=1,display_name=excluded.display_name,followed_at=excluded.followed_at").bind(id,actor.id,actor.displayName,now,id,nonce));
  if(body.action==="unfollow"){
  commands.push(db().prepare("UPDATE workspace_follows SET active=0 WHERE article_id=? AND user_id=? AND EXISTS(SELECT 1 FROM workspace_pool WHERE article_id=? AND last_mutation=?)").bind(id,actor.id,id,nonce));

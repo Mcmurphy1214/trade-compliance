@@ -18,3 +18,7 @@ export const pageViews=sqliteTable("page_views",{
  id:text("id").primaryKey(),day:text("day").notNull(),path:text("path").notNull(),
  articleId:text("article_id"),createdAt:text("created_at").notNull(),
 },table=>[index("page_views_day_idx").on(table.day),index("page_views_article_day_idx").on(table.articleId,table.day)]);
+
+export const articlePublications=sqliteTable("article_publications",{articleId:text("article_id").primaryKey(),title:text("title").notNull(),archived:integer("archived").notNull().default(0),reason:text("reason").notNull(),actorId:text("actor_id").notNull(),actorName:text("actor_name").notNull(),updatedAt:text("updated_at").notNull(),version:integer("version").notNull().default(0),lastMutation:text("last_mutation").notNull()});
+export const topicTracks=sqliteTable("topic_tracks",{id:text("id").primaryKey(),payload:text("payload").notNull(),version:integer("version").notNull().default(0),updatedAt:text("updated_at").notNull(),lastMutation:text("last_mutation").notNull()});
+export const topicTrackRevisions=sqliteTable("topic_track_revisions",{id:text("id").primaryKey(),topicId:text("topic_id").notNull(),payload:text("payload").notNull(),createdAt:text("created_at").notNull()});
