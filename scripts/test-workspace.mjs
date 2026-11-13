@@ -130,6 +130,12 @@ const publicationLogs=(await state(owner)).activity.filter(l=>['下架资讯','�
 console.log('PASS article publication: admin-only and CSRF; reason validation; seed/database hiding; public and MCP feed and daily briefing; pool/export protection; collection suppression; original team data preserved; restore; stale writes and concurrent administrators; audit logs; monitoring window/counts unchanged.');
 // Topic archives are internal, persistent and independent of an article's publication state.
 const topicRoute=await loadPublicationModule('app/api/topics/route.ts');
+const topicModel=await loadPublicationModule('lib/topic-model.ts'),bilateral=topicModel.DEFAULT_TRACKS.find(t=>t.id==='china-us-measures');
+assert(!topicModel.isTrackCandidate(bilateral,{...a,title:'美国对中国PTMEG作出反倾销初裁',jurisdiction:'美国',summary:'暂停清算，程序延期',topics:[]}));
+assert(!topicModel.isTrackCandidate(bilateral,{...a,title:'美国将中国某产品反倾销初裁延期',jurisdiction:'美国',summary:'调查继续',topics:[]}));
+assert(topicModel.isTrackCandidate(bilateral,{...a,title:'中国继续暂停对美部分加征关税',jurisdiction:'中国',summary:'正式暂停安排',topics:[]}));
+assert(topicModel.isTrackCandidate({...bilateral,id:'equipment',keywords:['制冷剂']},{...a,title:'电气设备二氟甲烷排放与制冷剂安全要求调整',summary:'',topics:[]}),'Direct equipment and refrigerant requirements remain eligible');
+assert(!topicModel.isTrackCandidate({...bilateral,id:'chemicals',keywords:['暂停']},{...a,title:'暂停聚醚多元醇反倾销措施',summary:'',topics:[]}));
 async function topicState(headers=owner){const r=await topicRoute.GET(new Request(base+'/api/topics',{headers}));assert.equal(r.status,200);return (await r.json()).tracks;}
 async function topicPost(body,headers=owner,expected=200){const r=await topicRoute.POST(new Request(base+'/api/topics',{method:'POST',headers:{Origin:base,...headers},body:JSON.stringify(body)}));const d=await r.json();assert.equal(r.status,expected,JSON.stringify(d));return d;}
 assert.equal((await topicRoute.GET(new Request(base+'/api/topics'))).status,401);
@@ -140,6 +146,8 @@ await topicPost(topicEdit,{},401);await topicPost(topicEdit,viewer.headers,403);
 await topicPost(topicEdit,{...owner,Origin:'https://evil.test'},403);
 await topicPost({...topicEdit,actions:[{...topicEdit.actions[0],dueDate:'2026-02-30'}]},owner,400);
 await topicPost(topicEdit);track=(await topicState()).find(t=>t.id==='ndaa');assert.equal(track.version,1);assert.deepEqual(track.events,[],'Client-provided facts must never enter a timeline');
+await store.upsert([{...a,id:'topic-excluded-chemistry',title:'美国对中国PTMEG作出反倾销初裁'}]);
+await topicPost({action:'link_article',id:'ndaa',version:1,articleId:'topic-excluded-chemistry',matter:'不得绕过业务范围排除'},owner,400);
 await topicPost(topicEdit,owner,409);
 const topicArticle=feed[1],link={action:'link_article',id:'ndaa',version:1,articleId:topicArticle.id,matter:'财年与具体条款分别跟踪'};
 await topicPost(link,bob.headers);track=(await topicState()).find(t=>t.id==='ndaa');assert.equal(track.version,2);assert.equal(track.events[0].title,topicArticle.title);assert.equal(track.events[0].status,topicArticle.status);assert.deepEqual(track.events[0].sources,topicArticle.sources);assert.equal(track.events[0].date,topicArticle.publishedDate);

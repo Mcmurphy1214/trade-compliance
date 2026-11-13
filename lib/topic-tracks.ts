@@ -4,7 +4,7 @@ import {feed} from './store';
 import {assertEditor,cleanText,WorkspaceError} from './workspace-policy';
 import {validDate} from './workspace-filters';
 import type {WorkspaceActor} from './workspace-types';
-import {DEFAULT_TRACKS,TRACK_KINDS,TRACK_STATUSES,type TopicTrack,type TrackAction} from './topic-model';
+import {DEFAULT_TRACKS,TRACK_KINDS,TRACK_STATUSES,isTrackingExcluded,type TopicTrack,type TrackAction} from './topic-model';
 
 type Row={id:string;payload:string;version:number;updated_at:string};
 const db=()=>env.DB!;
@@ -17,7 +17,7 @@ export async function topicTracks(){
  const rows=await db().prepare('SELECT id,payload,version,updated_at FROM topic_tracks ORDER BY updated_at DESC').all<Row>();
  const tracks=new Map(DEFAULT_TRACKS.map(t=>[t.id,structuredClone(t)]));
  for(const r of rows.results)tracks.set(r.id,{...JSON.parse(r.payload),version:r.version});
- const visible=new Set((await feed()).articles.map(a=>a.id));
+ const visible=new Set((await feed()).articles.filter(a=>!isTrackingExcluded(a)).map(a=>a.id));
  // Retain history in storage while withholding every snapshot of an unpublished article.
  return [...tracks.values()].map(t=>anonymizeContent({...t,events:t.events.filter(e=>visible.has(e.articleId))}));
 }
@@ -45,6 +45,7 @@ export async function mutateTrack(actor:WorkspaceActor,body:Record<string,unknow
   if(!prior)throw new WorkspaceError(404,'主题不存在。');
   const a=(await feed()).articles.find(a=>a.id===body.articleId);
   if(!a)throw new WorkspaceError(404,'关联资讯不存在或已下架。');
+  if(isTrackingExcluded(a))throw new WorkspaceError(400,'该资讯属于已明确排除的业务范围，不再关联到追踪主题。');
   const matter=text(body.matter,180);
   if(!matter)throw new WorkspaceError(400,'请填写具体事项或规则名称，避免将不同规则合并为一个状态。');
   if(prior.events.some(e=>e.articleId===a.id&&e.verifiedAt===a.verifiedAt))throw new WorkspaceError(409,'该核验版本已关联，无需重复加入。');

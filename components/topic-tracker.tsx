@@ -4,7 +4,7 @@ import {Search,Plus,RefreshCw,ArrowUpRight,Target,X,Link2} from 'lucide-react';
 import type {Article} from '../lib/types';
 import type {WorkspaceActor} from '../lib/workspace-types';
 import {articleHref} from '../lib/article-links';
-import {TRACK_KINDS,TRACK_STATUSES,isTrackCandidate,type TopicTrack} from '../lib/topic-model';
+import {TRACK_KINDS,TRACK_STATUSES,isTrackCandidate,isTrackingExcluded,type TopicTrack} from '../lib/topic-model';
 type Tab='进展总览'|'事件时间线'|'关联事项'|'官方证据'|'企业应对';
 const tabs:Tab[]=['进展总览','事件时间线','关联事项','官方证据','企业应对'];
 const fmt=(s:string)=>s?new Date(s).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}):'尚未编辑';
@@ -28,7 +28,7 @@ export function TopicTracker({articles,user,onActivity}:{articles:Article[];user
  const track=filtered.find(t=>t.id===selected)??filtered[0];
  const events=useMemo(()=>[...(track?.events??[])].sort((a,b)=>(b.date??'').localeCompare(a.date??'')||b.linkedAt.localeCompare(a.linkedAt)),[track]);
  const matters=useMemo(()=>{const map=new Map<string,typeof events[number]>();for(const e of events)if(!map.has(e.matter))map.set(e.matter,e);return [...map.values()];},[events]);
- const candidates=track?articles.filter(a=>(showAll||isTrackCandidate(track,a))&&(!articleQuery||`${a.title} ${a.reference}`.toLowerCase().includes(articleQuery.toLowerCase().trim()))):[];
+ const candidates=track?articles.filter(a=>!isTrackingExcluded(a)&&(showAll||isTrackCandidate(track,a))&&(!articleQuery||`${a.title} ${a.reference}`.toLowerCase().includes(articleQuery.toLowerCase().trim()))):[];
  function choose(t:TopicTrack){setSelected(t.id);setTab('进展总览');setMessage('');setLinking(null);const url=new URL(location.href);url.searchParams.set('view','topics');url.searchParams.set('track',t.id);history.replaceState(null,'',url.pathname+url.search);}
  function edit(t:TopicTrack){setForm(structuredClone(t));setKeywords(t.keywords.join('、'));setError('');}
  async function mutate(body:Record<string,unknown>){
