@@ -5,6 +5,13 @@ export const TRACK_STATUSES=['持续跟踪','重点关注','暂缓跟踪','已�
 export type TrackEvent={id:string;articleId:string;date:string|null;matter:string;title:string;status:string;summary:string;sources:{title:string;url:string}[];verifiedAt:string;linkedAt:string};
 export type TrackAction={id:string;text:string;owner:string;dueDate:string;done:boolean};
 export type TopicTrack={id:string;title:string;kind:string;description:string;keywords:string[];trackingStatus:string;assessment:string;nextWatch:string;businessImpact:string;events:TrackEvent[];actions:TrackAction[];version:number;updatedAt:string;updatedBy:string};
+// Explicit public projection: never return internal tasks, member names or future private fields.
+export function publicTopicTrack(t:TopicTrack):TopicTrack{return {
+ id:t.id,title:t.title,kind:t.kind,description:t.description,keywords:t.keywords,
+ trackingStatus:t.trackingStatus,assessment:t.assessment,nextWatch:t.nextWatch,businessImpact:t.businessImpact,
+ events:t.events.map(e=>({id:e.id,articleId:e.articleId,date:e.date,matter:e.matter,title:e.title,status:e.status,summary:e.summary,sources:e.sources.map(s=>({title:s.title,url:s.url})),verifiedAt:e.verifiedAt,linkedAt:e.linkedAt})),
+ actions:[],version:t.version,updatedAt:t.updatedAt,updatedBy:''
+};}
 const template=(id:string,title:string,kind:string,description:string,keywords:string[]):TopicTrack=>({id,title,kind,description,keywords,trackingStatus:'持续跟踪',assessment:'',nextWatch:'',businessImpact:'',events:[],actions:[],version:0,updatedAt:'',updatedBy:''});
 export const DEFAULT_TRACKS:TopicTrack[]=[
  template('ndaa','NDAA法案更新','法案追踪','按财年区分法案版本、立法进程、关键条款和配套执行，不将草案视为已生效法律。',['NDAA','国防授权法','National Defense Authorization']),

@@ -128,7 +128,7 @@ assert((await store.feed()).articles.some(x=>x.id==='publication-database-articl
 const races=await Promise.all([route.POST(new Request(base+'/api/workspace',{method:'POST',headers:{...owner,Origin:base},body:JSON.stringify({...visibility,version:2})})),route.POST(new Request(base+'/api/workspace',{method:'POST',headers:{...owner,Origin:base},body:JSON.stringify({...visibility,version:2})}))]);assert.deepEqual(races.map(r=>r.status).sort(),[200,409]);
 const publicationLogs=(await state(owner)).activity.filter(l=>['下架资讯','恢复上架'].includes(l.action));assert.equal(publicationLogs.length,5);assert(publicationLogs.every(l=>l.actorName==='Admin'&&l.at&&JSON.parse(l.detail).reason));
 console.log('PASS article publication: admin-only and CSRF; reason validation; seed/database hiding; public and MCP feed and daily briefing; pool/export protection; collection suppression; original team data preserved; restore; stale writes and concurrent administrators; audit logs; monitoring window/counts unchanged.');
-// Topic archives are internal, persistent and independent of an article's publication state.
+// Topic reading is public; internal tasks and all writes remain authenticated.
 const topicRoute=await loadPublicationModule('app/api/topics/route.ts');
 const topicModel=await loadPublicationModule('lib/topic-model.ts'),bilateral=topicModel.DEFAULT_TRACKS.find(t=>t.id==='china-us-measures');
 assert(!topicModel.isTrackCandidate(bilateral,{...a,title:'美国对中国PTMEG作出反倾销初裁',jurisdiction:'美国',summary:'暂停清算，程序延期',topics:[]}));
@@ -138,14 +138,24 @@ assert(topicModel.isTrackCandidate({...bilateral,id:'equipment',keywords:['制�
 assert(!topicModel.isTrackCandidate({...bilateral,id:'chemicals',keywords:['暂停']},{...a,title:'暂停聚醚多元醇反倾销措施',summary:'',topics:[]}));
 async function topicState(headers=owner){const r=await topicRoute.GET(new Request(base+'/api/topics',{headers}));assert.equal(r.status,200);return (await r.json()).tracks;}
 async function topicPost(body,headers=owner,expected=200){const r=await topicRoute.POST(new Request(base+'/api/topics',{method:'POST',headers:{Origin:base,...headers},body:JSON.stringify(body)}));const d=await r.json();assert.equal(r.status,expected,JSON.stringify(d));return d;}
-assert.equal((await topicRoute.GET(new Request(base+'/api/topics'))).status,401);
-assert.equal((await topicRoute.GET(new Request(base+'/api/topics',{headers:{Authorization:'Bearer '+'a'.repeat(64)}}))).status,401);
+assert.equal((await topicRoute.GET(new Request(base+'/api/topics'))).status,200);
+assert.equal((await topicRoute.GET(new Request(base+'/api/topics',{headers:{Authorization:'Bearer '+'a'.repeat(64)}}))).status,200);
 let track=(await topicState()).find(t=>t.id==='ndaa');assert.equal(track.version,0);assert.deepEqual(track.events,[]);
 const topicEdit={...track,action:'save',assessment:'待团队复核的分析意见',nextWatch:'下一正式文件',businessImpact:'适用性待评估',events:[{id:'forged',title:'Unverified finding'}],actions:[{id:'qa-task',text:'核对适用范围',owner:'合规团队',dueDate:'2026-11-20',done:false}]};
 await topicPost(topicEdit,{},401);await topicPost(topicEdit,viewer.headers,403);
 await topicPost(topicEdit,{...owner,Origin:'https://evil.test'},403);
 await topicPost({...topicEdit,actions:[{...topicEdit.actions[0],dueDate:'2026-02-30'}]},owner,400);
 await topicPost(topicEdit);track=(await topicState()).find(t=>t.id==='ndaa');assert.equal(track.version,1);assert.deepEqual(track.events,[],'Client-provided facts must never enter a timeline');
+const publicTracks=await topicState({}),publicNdaa=publicTracks.find(t=>t.id==='ndaa');
+assert.deepEqual(publicNdaa.actions,[]);assert.equal(publicNdaa.updatedBy,'');assert.equal(publicNdaa.assessment,track.assessment);
+assert(!JSON.stringify(publicTracks).includes('qa-task'));assert(!JSON.stringify(publicTracks).includes('合规团队'));
+const projected=topicModel.publicTopicTrack({...track,futurePrivateField:'must-not-leak',events:[]});assert(!JSON.stringify(projected).includes('must-not-leak'));
+assert.equal(track.actions[0].owner,'合规团队');assert.equal(track.updatedBy,'Admin');
+assert.equal((await topicState({})).find(t=>t.id==='ndaa').version,track.version);
+sqlite.prepare("UPDATE workspace_users SET must_change_password=1 WHERE id='qa-admin'").run();
+assert.deepEqual((await topicState(owner)).find(t=>t.id==='ndaa').actions,[]);
+await topicPost({...topicEdit,version:track.version},owner,403);
+sqlite.prepare("UPDATE workspace_users SET must_change_password=0 WHERE id='qa-admin'").run();
 await store.upsert([{...a,id:'topic-excluded-chemistry',title:'美国对中国PTMEG作出反倾销初裁'}]);
 await topicPost({action:'link_article',id:'ndaa',version:1,articleId:'topic-excluded-chemistry',matter:'不得绕过业务范围排除'},owner,400);
 await topicPost(topicEdit,owner,409);
@@ -155,6 +165,7 @@ await topicPost({...link,version:2},owner,409);
 const savedEvidence=structuredClone(track.events[0]);
 const topicArchive={action:'set_article_visibility',articleId:topicArticle.id,version:0,archived:true,reason:'核对主题下架一致性'};
 await post(topicArchive,owner);assert.equal((await topicState()).find(t=>t.id==='ndaa').events.length,0);await topicPost({...link,version:2},owner,404);
+assert.equal((await topicState({})).find(t=>t.id==='ndaa').events.length,0,'Anonymous readers must not see unpublished article snapshots');
 assert.equal(JSON.parse(sqlite.prepare("SELECT payload FROM topic_tracks WHERE id='ndaa'").get().payload).events.length,1,'Soft unpublishing must preserve evidence history');
 await post({...topicArchive,version:1,archived:false,reason:'复核恢复'},owner);assert.deepEqual((await topicState()).find(t=>t.id==='ndaa').events[0],savedEvidence);
 await topicPost({...track,action:'save',actions:track.actions.map(x=>({...x,done:true}))},bob.headers);track=(await topicState()).find(t=>t.id==='ndaa');assert.equal(track.version,3);assert(track.actions[0].done);assert.equal(track.events.length,1);
@@ -163,5 +174,5 @@ const topicRaces=await Promise.all([topicRoute.POST(new Request(base+'/api/topic
 track=(await topicState()).find(t=>t.id==='ndaa');await topicPost({action:'unlink_event',id:track.id,version:track.version,eventId:track.events[0].id});
 assert.equal((await topicState()).find(t=>t.id==='ndaa').events.length,0);assert((await store.feed()).articles.some(x=>x.id===topicArticle.id));
 assert(sqlite.prepare("SELECT COUNT(*) AS n FROM topic_track_revisions WHERE topic_id='ndaa'").get().n>=5);assert((await state(owner)).activity.some(a=>a.action==='关联主题进展'));
-console.log('PASS topic tracking: internal-only, authenticated roles and CSRF; defaults and persistence; input validation; trusted evidence snapshots; duplicate and stale writes; atomic concurrent edits; tasks; unpublishing hides evidence without erasing history; restore and audit.');
+console.log('PASS topic tracking: anonymous reading and private-field projection; authenticated writes, roles and CSRF; defaults and persistence; input validation; trusted evidence snapshots; duplicate and stale writes; atomic concurrent edits; tasks; unpublishing hides evidence without erasing history; restore and audit.');
 console.log('PASS: migrations; anonymous privacy; CSRF; independent login and first-password gate; role boundaries; merged follows; cancellation isolation; stale-write prevention; rule auto-selection; suppression and restore; complete-body XLSX with lossless continuation; complete two-column Word independent of Excel fields; disabled session revocation; secret redaction.');

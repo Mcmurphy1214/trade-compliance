@@ -36,7 +36,9 @@ try{
   db.prepare("INSERT INTO workspace_sessions(id,user_id,expires_at,created_at) VALUES(?,'publication-admin',?,?)").bind(sessionHash,new Date(Date.now()+3600000).toISOString(),now)
  ]);
  const headers={Origin:origin,Cookie:'__Host-compliance_session='+token,'Content-Type':'application/json'};
- assert.equal((await mf.dispatchFetch(origin+'/api/topics')).status,401);
+ assert.equal((await mf.dispatchFetch(origin+'/api/topics')).status,200);
+ assert.equal((await mf.dispatchFetch(origin+'/api/topics',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({action:'save'})})).status,401);
+ const publicTopics=(await(await mf.dispatchFetch(origin+'/api/topics')).json()).tracks;assert(publicTopics.every(t=>t.actions.length===0&&t.updatedBy===''));
  const tracks=await(await mf.dispatchFetch(origin+'/api/topics',{headers})).json();assert.equal(tracks.tracks.length,3);assert(tracks.tracks.every(t=>t.events.length===0));
  const linked=await mf.dispatchFetch(origin+'/api/topics',{method:'POST',headers,body:JSON.stringify({action:'link_article',id:'ndaa',version:0,articleId:a.id,matter:'Worker integration test'})});assert.equal(linked.status,200,await linked.text());
  assert.equal((await(await mf.dispatchFetch(origin+'/api/topics',{headers})).json()).tracks.find(t=>t.id==='ndaa').events[0].articleId,a.id);
@@ -44,6 +46,7 @@ try{
  const beforePage=await mf.dispatchFetch(origin+'/articles/'+a.id);assert.equal(beforePage.status,200);await beforePage.body.cancel();
  const archived=await setVisibility(true,0);assert.equal(archived.status,200,await archived.text());
  assert(!(await(await mf.dispatchFetch(origin+'/api/feed')).json()).articles.some(x=>x.id===a.id));
+ assert.equal((await(await mf.dispatchFetch(origin+'/api/topics')).json()).tracks.find(t=>t.id==='ndaa').events.length,0);
  assert.equal((await(await mf.dispatchFetch(origin+'/api/topics',{headers})).json()).tracks.find(t=>t.id==='ndaa').events.length,0);
  const gone=await mf.dispatchFetch(origin+'/articles/'+a.id);assert.equal(gone.status,404);await gone.body.cancel();
  const adminState=await(await mf.dispatchFetch(origin+'/api/workspace',{headers})).json();assert(adminState.articlePublications.some(x=>x.articleId===a.id&&x.archived));assert(adminState.activity.some(x=>x.articleId===a.id&&x.action==='下架资讯'));
