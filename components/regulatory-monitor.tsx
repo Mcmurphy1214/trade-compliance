@@ -2,14 +2,34 @@
 import {useState} from 'react';
 import {CalendarDays,Scale} from 'lucide-react';
 import type {Article,MonitorRun} from '../lib/types';
-import {importantDates,dailyBriefing} from '../lib/regulatory';
+import {importantDateGroups,dailyBriefing} from '../lib/regulatory';
 import {articleHref} from '../lib/article-links';
 type RegArticle=Article&{regulation?:{kind:string;changeSummary:string;businessAdvice?:string;effectiveStatus?:string;provisions?:string[]}};
 export function ImportantNodes({articles}:{articles:Article[]}){
  const [days,setDays]=useState(7);
  const today=new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Shanghai'});
- const dates=importantDates(articles,today,days);
- return <section className="rm-nodes"><h2><CalendarDays size={19}/>重要节点 <small>DEADLINES</small></h2><div className="rm-switch">{[7,30].map(d=><button key={d} className={days===d?'active':''} onClick={()=>setDays(d)}>未来{d}天</button>)}</div>{dates.length?dates.slice(0,12).map((d,i)=><a className="rm-date" key={i} href={articleHref(d.article.id,'/?view=regulations')}><strong>{d.date} · {d.label}</strong><span>{d.article.title}</span><small>{d.timezone}</small></a>):<p>本轮已核实资料中，暂无该窗口内的重要期限。</p>}<footer>范围含今天；日期及具体时刻请以原文为准。未明确日期的条目不推算节点。</footer></section>;
+ const groups=importantDateGroups(articles,today,days);
+
+ return <section className="rm-nodes">
+  <h2><CalendarDays size={19}/>重要节点 <small>DEADLINES</small></h2>
+  <div className="rm-switch">
+   {[7,30].map(d=><button key={d} type="button" aria-pressed={days===d} className={days===d?'active':''} onClick={()=>setDays(d)}>未来{d}天</button>)}
+  </div>
+  {groups.length?groups.slice(0,12).map(({article,dates})=>(
+   <a className="rm-date" key={article.id} href={articleHref(article.id,'/?view=regulations')}>
+    <span>{article.title}</span>
+    <ul className="rm-date-list">
+     {dates.map(({date,label,timezone})=>(
+      <li key={JSON.stringify([date,label,timezone])}>
+       <strong><time dateTime={date}>{date}</time> · {label}</strong>
+       <small>{timezone}</small>
+      </li>
+     ))}
+    </ul>
+   </a>
+  )):<p>本轮已核实资料中，暂无该窗口内的重要期限。</p>}
+  <footer>范围含今天；日期及具体时刻请以原文为准。未明确日期的条目不推算节点。</footer>
+ </section>;
 }
 export function RegulationFacts({article:a}:{article:RegArticle}){return <div className="rm-facts"><div><small>更新内容</small><p>{a.regulation?.changeSummary||a.summary}</p></div><div><small>生效状态</small><strong>{a.regulation?.effectiveStatus||a.status}</strong></div><div><small>生效日期</small><strong>{a.effectiveDate||'原文未明确 / 待核实'}</strong></div><div className="rm-advice"><small>业务建议 · 分析意见</small><p>{a.regulation?.businessAdvice||a.implications||'暂无经核实的业务建议'}</p></div></div>}
 function Paragraphs({text}:{text:string}){return <>{text.split(/\n\s*\n/).filter(Boolean).map((p,i)=><p key={i}>{p}</p>)}</>}
