@@ -46,7 +46,7 @@ export function ArticleReader({article,related,returnTo}:{article:Article;relate
      <div className="reader-bottom"><a className="outline" href={returnTo}><ArrowLeft size={15}/>返回资讯列表</a><a className="primary" href={article.sources[0].url} target="_blank" rel="noopener noreferrer">查看官方原文<ArrowUpRight size={16}/></a></div>
     </article>
     <aside className="reader-aside"><div className="reader-aside-sticky"><section className="reader-toc"><span className="reader-aside-label">ON THIS PAGE</span><h2>本文导览</h2><nav aria-label="本文导览">{toc.map((t,i)=><a key={t.id} href={"#"+t.id}><span>0{i+1}</span>{t.label}</a>)}</nav></section>
-     {related.length>0&&<section className="reader-related"><span className="reader-aside-label">MORE INSIGHTS</span><h2>同板块资讯</h2>{related.map(a=><a key={a.id} href={articleHref(a.id,returnTo)}><span>{a.publishedDate} · {a.jurisdiction}</span><h3>{a.title}</h3><ArrowUpRight size={14}/></a>)}</section>}
+     {related.length>0&&<section className="reader-related"><span className="reader-aside-label">MORE INSIGHTS</span><h2>同板块资讯</h2>{related.map(a=><a key={a.id} href={articleHref(a.id,returnTo)} target="_blank" rel="noopener noreferrer"><span>{a.publishedDate} · {a.jurisdiction}</span><h3>{a.title}</h3><ArrowUpRight size={14}/></a>)}</section>}
      <div className="reader-source-note"><ShieldCheck size={21}/><strong>每条资讯，追溯原文</strong><p>官方事实与企业分析分别呈现，关键条件及日期请结合原文阅读。</p></div></div></aside>
    </div>
   </main>
