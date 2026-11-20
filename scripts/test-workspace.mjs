@@ -105,7 +105,7 @@ for(const text of [a.title,a.content,a.implications])for(const line of text.spli
 const expectedFields=['资讯标题','资讯内容','企业启示','板块','发布日期','原文链接','创建人'],expectedLabels=['原文标题','资讯完整内容','建议','领域','信息发布日期','原文链接','创建人'];
 assert(!worksheet.includes('<f>'));assert.equal(snapshot.rows[0]['资讯内容'],a.content);assert.equal(snapshot.rows[0]['企业启示'],a.implications);assert.equal(snapshot.rows[0]['板块'],a.category);assert.equal(snapshot.fields.length,7);assert.deepEqual(snapshot.fields,expectedFields);assert.deepEqual(Object.keys(snapshot.rows[0]),snapshot.fields);assert.deepEqual(snapshot.fields.map(f=>snapshot.fieldLabels[f]),expectedLabels);
 const sheetHeaders=[...worksheet.match(/<row r="1"[^>]*>([\s\S]*?)<\/row>/)[1].matchAll(/<t xml:space="preserve">([^<]*)<\/t>/g)].map(x=>x[1]);assert.deepEqual(sheetHeaders,expectedLabels);
-const bodyParts=[...worksheet.matchAll(/<row r="(\d+)"[^>]*>([\s\S]*?)<\/row>/g)].filter(m=>Number(m[1])>1).map(m=>[...m[2].matchAll(/<t xml:space="preserve">([\s\S]*?)<\/t>/g)].map(x=>x[1])[1]);assert.equal(bodyParts.join(''),escaped(excelDisplayText(a.content)));
+const bodyParts=[...worksheet.matchAll(/<row r="(\d+)"[^>]*>([\s\S]*?)<\/row>/g)].filter(m=>Number(m[1])>1).map(m=>[...m[2].matchAll(/<t xml:space="preserve">([\s\S]*?)<\/t>/g)].map(x=>x[1])[1]);assert.equal(bodyParts.length,1);assert.equal(bodyParts[0],escaped(excelDisplayText(a.content)));
 assert(!Object.hasOwn(snapshot.rows[0],'摘要'));assert(!Object.hasOwn(snapshot.rows[0],'发布机构'));
 // Retain the most recent add even after that member cancels; no fallback to
 // the exporter, an older active follower, or the last note/status editor.
@@ -215,4 +215,19 @@ track=(await topicState()).find(t=>t.id==='ndaa');await topicPost({action:'unlin
 assert.equal((await topicState()).find(t=>t.id==='ndaa').events.length,0);assert((await store.feed()).articles.some(x=>x.id===topicArticle.id));
 assert(sqlite.prepare("SELECT COUNT(*) AS n FROM topic_track_revisions WHERE topic_id='ndaa'").get().n>=5);assert((await state(owner)).activity.some(a=>a.action==='关联主题进展'));
 console.log('PASS topic tracking: anonymous reading and private-field projection; authenticated writes, roles and CSRF; defaults and persistence; input validation; trusted evidence snapshots; duplicate and stale writes; atomic concurrent edits; tasks; unpublishing hides evidence without erasing history; restore and audit.');
-console.log('PASS: migrations; anonymous privacy; CSRF; independent login and first-password gate; role boundaries; merged follows; cancellation isolation; stale-write prevention; rule auto-selection; suppression and restore; complete-body XLSX with lossless continuation; complete two-column Word independent of Excel fields; disabled session revocation; secret redaction.');
+console.log('PASS: migrations; anonymous privacy; CSRF; independent login and first-password gate; role boundaries; merged follows; cancellation isolation; stale-write prevention; rule auto-selection; suppression and restore; complete-body XLSX with one article per row; complete two-column Word independent of Excel fields; disabled session revocation; secret redaction.');
+
+// Reject actual Excel cell overflow without truncation or continuation rows.
+const overflowArticle={...a,id:'excel-cell-limit-qa',content:'字'.repeat(32768)};
+await store.upsert([overflowArticle]);
+const overflowPool=(await state(owner)).pool.find(x=>x.articleId===overflowArticle.id);
+await post({action:'follow',articleId:overflowArticle.id,version:overflowPool?.version??0},owner);
+const exportCountBefore=sqlite.prepare('SELECT COUNT(*) AS n FROM workspace_exports').get().n;
+const overflow=await post({action:'create_export',articleIds:[overflowArticle.id],fields:['资讯内容']},owner,400);
+assert(overflow.data.error.includes('32767'));assert(overflow.data.error.includes('Word'));assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM workspace_exports').get().n,exportCountBefore);
+const longPdf=await post({action:'create_export',articleIds:[overflowArticle.id],format:'pdf',fields:[]},owner);assert.equal(longPdf.data.xlsx,null);assert(longPdf.data.docx);
+const savedLong=JSON.parse(sqlite.prepare('SELECT payload FROM workspace_exports WHERE id=?').get(longPdf.data.id).payload);assert.equal(savedLong.briefing.articles[0].content,overflowArticle.content);
+const oversizedLegacy={...savedLong,id:'oversized-legacy',formats:['xlsx'],fields:['资讯内容']};const oversizedPayload=JSON.stringify(oversizedLegacy);
+sqlite.prepare('INSERT INTO workspace_exports(id,payload,checksum,created_at,created_by,row_count) VALUES(?,?,?,?,?,?)').run(oversizedLegacy.id,oversizedPayload,Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(oversizedPayload))).toString('hex'),oversizedLegacy.createdAt,'test',1);
+const oldOverflow=await route.GET(new Request(base+'/api/workspace?snapshot=oversized-legacy&format=xlsx',{headers:owner}));assert.equal(oldOverflow.status,400);assert((await oldOverflow.json()).error.includes('32767'));
+console.log('PASS Excel single-row export: one complete body per article; 32767-character boundary; clear overflow response; PDF/Word escape hatch; historical snapshot validation.');

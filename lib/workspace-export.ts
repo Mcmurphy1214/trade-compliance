@@ -25,25 +25,18 @@ export function excelDisplayText(value:string,editorial=true){
   .map(line=>editorial?line.replace(/^\s*【([^】]+)】\s*$/,(_,heading:string)=>heading.trim().replace(/^(\d+)\s*[、，,.．]\s*/,'$1、')):line)
   .join('\n');
 }
-// Excel caps row heights and cell lengths. Continue long text in additional rows
-// instead of hiding it below a fixed-height row or discarding characters.
-export function excelTextChunks(value:string,width:number){
- const chunks:string[]=[];let chunk='',line=1,used=0;
- for(const ch of value){
-  const units=(ch.codePointAt(0)??0)>255?2:1;
-  const nextLine=ch==='\n'||used+units>width-2;
-  if((nextLine&&line>=28)||chunk.length+ch.length>30000){chunks.push(chunk);chunk='';line=1;used=0;}
-  else if(nextLine){line++;used=0;}
-  chunk+=ch;if(ch!=='\n')used+=units;
- }
- if(chunk||!chunks.length)chunks.push(chunk);return chunks;
+export class ExcelCellLimitError extends Error{}
+// One article always occupies one spreadsheet row. Row-height limits affect
+// visibility only; keep its full text in the cell without continuation rows.
+export function excelDataRows(snapshot:Pick<ExportSnapshot,'fields'|'rows'|'fieldLabels'>){
+ return snapshot.rows.map((source,i)=>snapshot.fields.map(k=>{
+  const value=excelDisplayText(source[k]??'',['资讯内容','摘要','企业启示','团队备注'].includes(k));
+  if(value.length>32767)throw new ExcelCellLimitError(`第${i+1}篇资讯的「${snapshot.fieldLabels?.[k]??k}」超过 Excel 单元格32767字符上限，请改用 Word 或 PDF 导出完整内容。`);
+  return value;
+ }));
 }
 export function excelFile(snapshot:ExportSnapshot){
- const data=[snapshot.fields.map(k=>snapshot.fieldLabels?.[k]??k)];
- for(const source of snapshot.rows){
-  const parts=snapshot.fields.map(k=>excelTextChunks(excelDisplayText(source[k]??'',['资讯内容','摘要','企业启示','团队备注'].includes(k)),fieldWidth(k))),count=Math.max(...parts.map(p=>p.length));
-  for(let n=0;n<count;n++)data.push(parts.map(p=>p.length===1?p[0]:p[n]??''));
- }
+ const data=[snapshot.fields.map(k=>snapshot.fieldLabels?.[k]??k),...excelDataRows(snapshot)];
  const rowHeight=(row:string[])=>Math.min(409,Math.max(35,...row.map((v,j)=>{let lines=1,used=0;for(const ch of v){const units=(ch.codePointAt(0)??0)>255?2:1;if(ch==='\n'||used+units>fieldWidth(snapshot.fields[j])-2){lines++;used=0;}if(ch!=='\n')used+=units;}return lines*14+12;})));
  const rows=data.map((row,i)=>`<row r="${i+1}" ht="${i?rowHeight(row):28}" customHeight="1">${row.map((v,j)=>`<c r="${column(j+1)}${i+1}" t="inlineStr" s="${i?1:2}"><is><t xml:space="preserve">${xml(v??'')}</t></is></c>`).join('')}</row>`).join('');
 return archive({
