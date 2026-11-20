@@ -39,7 +39,7 @@ try{
  const article=feed.articles[0];res=await post({action:'follow',articleId:article.id,version:0},cookie);assert.equal(res.status,200);
  res=await post({action:'create_export',articleIds:[article.id]},cookie);assert.equal(res.status,200);const snapshot=await res.json();
  res=await request(snapshot.xlsx,{headers:{cookie}});assert.equal(res.status,200);const file=unzipSync(new Uint8Array(await res.arrayBuffer())),sheet=strFromU8(file['xl/worksheets/sheet1.xml']);
- const labels=[...sheet.match(/<row r="1"[^>]*>([\s\S]*?)<\/row>/)[1].matchAll(/<t xml:space="preserve">([^<]*)<\/t>/g)].map(x=>x[1]);assert.deepEqual(labels,['原文标题','内容简述','建议','领域','信息发布日期','原文链接']);
+ const labels=[...sheet.match(/<row r="1"[^>]*>([\s\S]*?)<\/row>/)[1].matchAll(/<t xml:space="preserve">([^<]*)<\/t>/g)].map(x=>x[1]);assert.deepEqual(labels,['原文标题','资讯完整内容','建议','领域','信息发布日期','原文链接','创建人']);
  assert.equal((await request(snapshot.xlsx)).status,401);const briefing=await(await request(snapshot.briefing,{headers:{cookie}})).json();assert.equal(briefing.snapshot.articles[0].content,article.content);
  const service=await post({action:'create_member',username:'service-escalation',displayName:'x',role:'admin'},'',{Authorization:'Bearer test-only-monitor-credential-0123456789abcdef'});assert.equal(service.status,401);
  const rpc=await request('/mcp',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer test-only-monitor-credential-0123456789abcdef'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list'})});assert((await rpc.json()).result.tools.some(t=>t.name==='upsert_articles'));
@@ -48,5 +48,5 @@ try{
  const asset=markup.match(/src="(\/_next\/[^\"]+\.js)"/)[1];const script=await request(asset);assert.equal(script.status,200);assert((await script.text()).length>0);
  const font=await request('/fonts/NotoSansSC-Regular.ttf');assert.equal(font.status,200);await font.body.cancel();
  health=await(await request('/api/deployment-health')).json();assert.equal(health.adminInitialized,true);
- console.log('PASS Pages upload: exact single-file Worker, SSR and assets; empty-D1 automatic initialization; anonymous news and protected team selection; repeated safe schema setup; offline password hashing; first-password gate; forged-header rejection; admin permissions; CSRF; immutable exports with exact six Excel columns; MCP scope; 56 migrated articles; no migrated schedules.');
+ console.log('PASS Pages upload: exact single-file Worker, SSR and assets; empty-D1 automatic initialization; anonymous news and protected team selection; repeated safe schema setup; offline password hashing; first-password gate; forged-header rejection; admin permissions; CSRF; immutable exports with seven Excel columns including latest selector; MCP scope; 56 migrated articles; no migrated schedules.');
 }finally{await mf.dispose();}

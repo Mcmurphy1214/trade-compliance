@@ -25,6 +25,8 @@ assert.deepEqual(importantDateGroups(items,'2026-12-19',7),[]);
 const sameDayDifferentEvent={...other,deadlines:[comment]};
 assert.equal(importantDateGroups([sameDayDifferentEvent],'2026-11-18',7)[0].dates.length,2);
 const filterBuild=await build({entryPoints:['lib/workspace-filters.ts'],bundle:true,platform:'node',format:'esm',write:false});
+const exportBuild=await build({entryPoints:['lib/workspace-export.ts'],bundle:true,platform:'node',format:'esm',write:false});
+const {excelDisplayText}=await import('data:text/javascript;base64,'+Buffer.from(exportBuild.outputFiles[0].text).toString('base64'));
 const {validDate,inPublicationRange}=await import('data:text/javascript;base64,'+Buffer.from(filterBuild.outputFiles[0].text).toString('base64'));
 assert(validDate('2024-02-29'));assert(!validDate('2026-02-29'));assert(!validDate('2026-13-01'));
 assert(inPublicationRange('2026-11-01','2026-11-01','2026-11-04'));assert(inPublicationRange('2026-11-04','2026-11-01','2026-11-04'));
@@ -73,7 +75,11 @@ const conditions={categories:[a.category],jurisdictions:[a.jurisdiction],topics:
 await post({action:'remove',articleId:a.id,version:p.version,reason:'本期不选用'},owner);await post({action:'sync_rules'},owner);s=await state(owner);p=s.pool.find(x=>x.articleId===a.id);assert.equal(p.active,false);assert.equal(p.suppressed,true);
 await post({action:'follow',articleId:a.id,version:p.version},alice.headers,409);
 await post({action:'restore',articleId:a.id,version:p.version},owner);s=await state(owner);p=s.pool.find(x=>x.articleId===a.id);assert(p.active);assert.equal(p.note,'团队评估备注，含<&>与换行\n保留全文');assert(p.followers.some(f=>f.name==='bobby'));
+// The latest manual selector comes from persisted follows, not the export actor.
+sqlite.prepare('UPDATE workspace_follows SET followed_at=? WHERE article_id=? AND user_id=?').run('2026-11-19T01:00:00Z',a.id,alice.user.id);
+sqlite.prepare('UPDATE workspace_follows SET followed_at=? WHERE article_id=? AND user_id=?').run('2026-11-20T01:00:00Z',a.id,bob.user.id);
 const exported=await post({action:'create_export',articleIds:[a.id,a.id],versions:{[a.id]:p.version}},alice.headers);assert.equal(exported.data.rowCount,1);const snapshot=JSON.parse(sqlite.prepare('SELECT payload FROM workspace_exports WHERE id=?').get(exported.data.id).payload);
+assert.equal(snapshot.rows[0]['创建人'],'bobby');assert.equal(snapshot.createdBy,'alice');
 const buffers={};for(const format of ['xlsx','docx']){const res=await route.GET(new Request(base+exported.data[format],{headers:alice.headers}));assert.equal(res.status,200);assert.equal(res.headers.get('x-export-snapshot'),exported.data.id);assert.equal(res.headers.get('x-export-checksum'),exported.data.checksum);buffers[format]=new Uint8Array(await res.arrayBuffer());}
 const briefingRes=await route.GET(new Request(base+exported.data.briefing,{headers:alice.headers}));assert.equal(briefingRes.status,200);
 const pdfSnapshot=await briefingRes.json();assert.equal(pdfSnapshot.id,snapshot.id);assert.equal(pdfSnapshot.checksum,exported.data.checksum);assert.equal(pdfSnapshot.snapshot.articles[0].id,a.id);assert.equal(pdfSnapshot.snapshot.articles[0].content,a.content);
@@ -96,11 +102,25 @@ const escaped=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;
 const wordText=document.replace(/<[^>]*>/g,'');
 for(const field of snapshot.fields){const label=snapshot.fieldLabels[field];assert(worksheet.includes(escaped(label)));}
 for(const text of [a.title,a.content,a.implications])for(const line of text.split('\n').filter(Boolean))assert(wordText.includes(escaped(line.replace(/^【([^】]+)】\s*/, '$1'))));
-const expectedFields=['资讯标题','资讯内容','企业启示','板块','发布日期','原文链接'],expectedLabels=['原文标题','资讯完整内容','建议','领域','信息发布日期','原文链接'];
-assert(!worksheet.includes('<f>'));assert.equal(snapshot.rows[0]['资讯内容'],a.content);assert.equal(snapshot.rows[0]['企业启示'],a.implications);assert.equal(snapshot.rows[0]['板块'],a.category);assert.equal(snapshot.fields.length,6);assert.deepEqual(snapshot.fields,expectedFields);assert.deepEqual(Object.keys(snapshot.rows[0]),snapshot.fields);assert.deepEqual(snapshot.fields.map(f=>snapshot.fieldLabels[f]),expectedLabels);
+const expectedFields=['资讯标题','资讯内容','企业启示','板块','发布日期','原文链接','创建人'],expectedLabels=['原文标题','资讯完整内容','建议','领域','信息发布日期','原文链接','创建人'];
+assert(!worksheet.includes('<f>'));assert.equal(snapshot.rows[0]['资讯内容'],a.content);assert.equal(snapshot.rows[0]['企业启示'],a.implications);assert.equal(snapshot.rows[0]['板块'],a.category);assert.equal(snapshot.fields.length,7);assert.deepEqual(snapshot.fields,expectedFields);assert.deepEqual(Object.keys(snapshot.rows[0]),snapshot.fields);assert.deepEqual(snapshot.fields.map(f=>snapshot.fieldLabels[f]),expectedLabels);
 const sheetHeaders=[...worksheet.match(/<row r="1"[^>]*>([\s\S]*?)<\/row>/)[1].matchAll(/<t xml:space="preserve">([^<]*)<\/t>/g)].map(x=>x[1]);assert.deepEqual(sheetHeaders,expectedLabels);
-const bodyParts=[...worksheet.matchAll(/<row r="(\d+)"[^>]*>([\s\S]*?)<\/row>/g)].filter(m=>Number(m[1])>1).map(m=>[...m[2].matchAll(/<t xml:space="preserve">([\s\S]*?)<\/t>/g)].map(x=>x[1])[1]);assert.equal(bodyParts.join(''),escaped(a.content));
+const bodyParts=[...worksheet.matchAll(/<row r="(\d+)"[^>]*>([\s\S]*?)<\/row>/g)].filter(m=>Number(m[1])>1).map(m=>[...m[2].matchAll(/<t xml:space="preserve">([\s\S]*?)<\/t>/g)].map(x=>x[1])[1]);assert.equal(bodyParts.join(''),escaped(excelDisplayText(a.content)));
 assert(!Object.hasOwn(snapshot.rows[0],'摘要'));assert(!Object.hasOwn(snapshot.rows[0],'发布机构'));
+// Retain the most recent add even after that member cancels; no fallback to
+// the exporter, an older active follower, or the last note/status editor.
+await post({action:'follow',articleId:a.id,version:(await state(owner)).pool.find(x=>x.articleId===a.id).version},alice.headers);
+sqlite.prepare('UPDATE workspace_follows SET followed_at=?,display_name=? WHERE article_id=? AND user_id=?').run('2026-11-21T01:00:00Z','童谣',a.id,alice.user.id);
+await post({action:'unfollow',articleId:a.id,version:(await state(owner)).pool.find(x=>x.articleId===a.id).version},alice.headers);
+const creatorExport=await post({action:'create_export',articleIds:[a.id],fields:['原文链接','创建人'],creator:'forged name'},bob.headers);
+const creatorSnapshot=JSON.parse(sqlite.prepare('SELECT payload FROM workspace_exports WHERE id=?').get(creatorExport.data.id).payload);
+assert.deepEqual(creatorSnapshot.fields,['原文链接','创建人']);assert.equal(creatorSnapshot.rows[0]['创建人'],'童谣');
+assert.equal(JSON.parse(sqlite.prepare('SELECT payload FROM workspace_exports WHERE id=?').get(exported.data.id).payload).rows[0]['创建人'],'bobby','Earlier snapshot keeps the captured creator');
+const creatorFile=await route.GET(new Request(base+creatorExport.data.xlsx,{headers:bob.headers}));
+assert(strFromU8(unzipSync(new Uint8Array(await creatorFile.arrayBuffer()))['xl/worksheets/sheet1.xml']).includes('童谣'));
+const ruleOnly=(await state(owner)).pool.find(x=>x.active&&x.rules.length&&!sqlite.prepare('SELECT 1 FROM workspace_follows WHERE article_id=?').get(x.articleId));assert(ruleOnly);
+const ruleExport=await post({action:'create_export',articleIds:[ruleOnly.articleId],fields:['创建人']},bob.headers);
+assert.equal(JSON.parse(sqlite.prepare('SELECT payload FROM workspace_exports WHERE id=?').get(ruleExport.data.id).payload).rows[0]['创建人'],'');
 const reordered=await post({action:'create_export',articleIds:[a.id],fields:[...expectedFields].reverse()},alice.headers);const reorderedSnapshot=JSON.parse(sqlite.prepare('SELECT payload FROM workspace_exports WHERE id=?').get(reordered.data.id).payload);assert.deepEqual(reorderedSnapshot.fields,expectedFields);
 const custom=await post({action:'create_export',articleIds:[a.id],fields:['团队备注','发布机构','团队备注']},alice.headers);
 const customSnapshot=JSON.parse(sqlite.prepare('SELECT payload FROM workspace_exports WHERE id=?').get(custom.data.id).payload);
@@ -108,8 +128,8 @@ assert.deepEqual(customSnapshot.fields,['发布机构','团队备注']);assert.d
 for(const format of ['xlsx','docx']){const res=await route.GET(new Request(base+custom.data[format],{headers:alice.headers}));const files=unzipSync(new Uint8Array(await res.arrayBuffer()));const xml=strFromU8(files[format==='xlsx'?'xl/worksheets/sheet1.xml':'word/document.xml']);if(format==='xlsx'){assert(!xml.includes(escaped(a.title)));assert(!xml.includes(escaped(a.content)));}else assert(xml.includes(escaped(a.title)));assert(xml.includes(escaped(a.authority)));}
 await post({action:'create_export',articleIds:[a.id],fields:[]},alice.headers,400);
 await post({action:'create_export',articleIds:[a.id],fields:['invalid']},alice.headers,400);
-const allFields=['资讯ID','资讯标题','摘要','资讯内容','发布机构','生效状态','发布日期','生效日期','到期日期','板块','发布法域','受影响地区','主题','企业启示','原文链接','公告编号','相关期限','核验时间','团队备注','选题状态'];
-const allExport=await post({action:'create_export',articleIds:[a.id],fields:allFields},alice.headers);assert.equal(allExport.data.fields.length,20);
+const allFields=['资讯ID','资讯标题','摘要','资讯内容','发布机构','生效状态','发布日期','生效日期','到期日期','板块','发布法域','受影响地区','主题','企业启示','原文链接','创建人','公告编号','相关期限','核验时间','团队备注','选题状态'];
+const allExport=await post({action:'create_export',articleIds:[a.id],fields:allFields},alice.headers);assert.equal(allExport.data.fields.length,21);
 await post({action:'create_export',articleIds:[a.id]},viewer.headers,403);
 const anonExport=await route.GET(new Request(base+exported.data.xlsx));assert.equal(anonExport.status,401);
 s=await state(owner);const member=s.members.find(m=>m.username==='alice');await post({action:'disable_member',userId:member.id,version:member.version,disabled:true},owner);assert.equal((await state(alice.headers)).user,null);
