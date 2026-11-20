@@ -48,7 +48,14 @@ export async function POST(request:Request){try{
  const ids=[...new Set(body.articleIds as string[])],state=await workspaceState(actor),data=await feed(),entries=ids.map(id=>state.pool.find(p=>p.articleId===id&&p.active));
  if(entries.some(p=>!p))throw new WorkspaceError(409,"部分选题已被移出，请刷新后重新选择。");
  if(body.versions&&entries.some(p=>body.versions[p!.articleId]!==p!.version))throw new WorkspaceError(409,"部分选题内容已由成员修改，请刷新后再导出。");
- const rows=entries.map(p=>{const a=data.articles.find(a=>a.id===p!.articleId);if(!a)throw new WorkspaceError(409,"原资讯已不可用，请刷新。");const full=exportRow(a,p!);return Object.fromEntries(fields.map(f=>[f,full[f]])) as ExportRow;});
+ // Include inactive follows: cancelling a follow does not erase the identity
+ // of the person who most recently added this article. Never use the exporter.
+ const creators=new Map<string,string>();
+ if(fields.includes("创建人")){
+  const follows=await env.DB!.prepare(`SELECT article_id,display_name FROM workspace_follows WHERE article_id IN (${ids.map(()=>'?').join(',')}) ORDER BY followed_at DESC,rowid DESC`).bind(...ids).all<{article_id:string;display_name:string}>();
+  for(const f of follows.results)if(!creators.has(f.article_id))creators.set(f.article_id,f.display_name);
+ }
+ const rows=entries.map(p=>{const a=data.articles.find(a=>a.id===p!.articleId);if(!a)throw new WorkspaceError(409,"原资讯已不可用，请刷新。");const full=exportRow(a,p!,creators.get(p!.articleId)??"");return Object.fromEntries(fields.map(f=>[f,full[f]])) as ExportRow;});
  const id=crypto.randomUUID(),now=new Date().toISOString();let briefing;
  if(body.periodStart!==undefined&&typeof body.periodStart!=="string"||body.periodEnd!==undefined&&typeof body.periodEnd!=="string")throw new WorkspaceError(400,"简报日期无效。");
  try{briefing=buildBriefingSnapshot(ids.map(id=>data.articles.find(a=>a.id===id)!),now,{start:body.periodStart,end:body.periodEnd});}catch(e){throw new WorkspaceError(400,e instanceof Error?e.message:"简报日期无效。");}

@@ -8,13 +8,23 @@ import type {ExportField} from "./workspace-export-fields";
 export {EXPORT_FIELDS} from "./workspace-export-fields";
 export type ExportRow=Record<typeof EXPORT_FIELDS[number],string>;
 const clean=(v:unknown)=>anonymizeContent(String(v??"")).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g,"");
-export function exportRow(a:Article,p:PoolEntry):ExportRow{return Object.fromEntries(Object.entries({"资讯ID":a.id,"资讯标题":a.title,"摘要":a.summary,"资讯内容":a.content,"发布机构":a.authority,"生效状态":a.status,"发布日期":a.publishedDate??"原文未另列","生效日期":a.effectiveDate??"原文未另列","到期日期":a.expiryDate??"原文未另列","板块":a.category,"发布法域":a.jurisdiction,"受影响地区":a.affectedRegions.join("、"),"主题":a.topics.join("、"),"企业启示":a.implications,"原文链接":a.sources.map(s=>`${s.title}\n${s.url}`).join("\n\n"),"公告编号":a.reference,"相关期限":a.deadlines.map(d=>`${d.date} ${d.timezone}：${d.label}`).join("\n"),"核验时间":a.verifiedAt,"团队备注":p.note,"选题状态":p.status}).map(([k,v])=>[k,clean(v)])) as ExportRow;}
+export function exportRow(a:Article,p:PoolEntry,creator=""):ExportRow{return Object.fromEntries(Object.entries({"资讯ID":a.id,"资讯标题":a.title,"摘要":a.summary,"资讯内容":a.content,"发布机构":a.authority,"生效状态":a.status,"发布日期":a.publishedDate??"原文未另列","生效日期":a.effectiveDate??"原文未另列","到期日期":a.expiryDate??"原文未另列","板块":a.category,"发布法域":a.jurisdiction,"受影响地区":a.affectedRegions.join("、"),"主题":a.topics.join("、"),"企业启示":a.implications,"原文链接":a.sources.map(s=>`${s.title}\n${s.url}`).join("\n\n"),"创建人":creator,"公告编号":a.reference,"相关期限":a.deadlines.map(d=>`${d.date} ${d.timezone}：${d.label}`).join("\n"),"核验时间":a.verifiedAt,"团队备注":p.note,"选题状态":p.status}).map(([k,v])=>[k,clean(v)])) as ExportRow;}
 export type ExportSnapshot={id:string;createdAt:string;createdBy:string;fields:ExportField[];rows:ExportRow[];fieldLabels?:Partial<Record<ExportField,string>>;poolVersions:{id:string;version:number}[];formats?:string[];briefing?:import('./briefing-model').BriefingSnapshot};
 const xml=(s:string)=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&apos;");
 const header='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
 const archive=(files:Record<string,string>)=>zipSync(Object.fromEntries(Object.entries(files).map(([k,v])=>[k,strToU8(v)])),{level:6});
 function column(n:number){let s="";while(n){n--;s=String.fromCharCode(65+n%26)+s;n=Math.floor(n/26);}return s;}
 const fieldWidth=(field:string)=>['资讯内容','摘要','企业启示','原文链接'].includes(field)?65:field==='资讯标题'?44:23;
+// Compact presentation only: keep stored article/snapshot text and inline legal
+// brackets intact, while rendering standalone editorial headings as plain text.
+export function excelDisplayText(value:string,editorial=true){
+ const text=value.replace(/\r\n?/g,'\n');
+ return (editorial?text.replace(/\*\*/g,''):text).split('\n')
+  .map(line=>line.replace(/[\t \u3000]+$/g,''))
+  .filter(line=>line.trim().length>0)
+  .map(line=>editorial?line.replace(/^\s*【([^】]+)】\s*$/,(_,heading:string)=>heading.trim().replace(/^(\d+)\s*[、，,.．]\s*/,'$1、')):line)
+  .join('\n');
+}
 // Excel caps row heights and cell lengths. Continue long text in additional rows
 // instead of hiding it below a fixed-height row or discarding characters.
 export function excelTextChunks(value:string,width:number){
@@ -31,7 +41,7 @@ export function excelTextChunks(value:string,width:number){
 export function excelFile(snapshot:ExportSnapshot){
  const data=[snapshot.fields.map(k=>snapshot.fieldLabels?.[k]??k)];
  for(const source of snapshot.rows){
-  const parts=snapshot.fields.map(k=>excelTextChunks(source[k]??'',fieldWidth(k))),count=Math.max(...parts.map(p=>p.length));
+  const parts=snapshot.fields.map(k=>excelTextChunks(excelDisplayText(source[k]??'',['资讯内容','摘要','企业启示','团队备注'].includes(k)),fieldWidth(k))),count=Math.max(...parts.map(p=>p.length));
   for(let n=0;n<count;n++)data.push(parts.map(p=>p.length===1?p[0]:p[n]??''));
  }
  const rowHeight=(row:string[])=>Math.min(409,Math.max(35,...row.map((v,j)=>{let lines=1,used=0;for(const ch of v){const units=(ch.codePointAt(0)??0)>255?2:1;if(ch==='\n'||used+units>fieldWidth(snapshot.fields[j])-2){lines++;used=0;}if(ch!=='\n')used+=units;}return lines*14+12;})));
