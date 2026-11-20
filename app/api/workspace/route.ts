@@ -2,7 +2,7 @@ import {env} from "cloudflare:workers";
 import {workspaceActor,requireActor,assertBrowserOrigin,login,sessionCookie,sessionToken,digest} from "../../../lib/workspace-auth";
 import {WorkspaceError,assertEditor} from "../../../lib/workspace-policy";
 import {workspaceState,mutatePool,saveRule,syncRules,createMember,manageMember,changePassword} from "../../../lib/workspace";
-import {EXPORT_FIELDS,exportRow,excelFile,wordFile} from "../../../lib/workspace-export";
+import {EXPORT_FIELDS,exportRow,excelFile,wordFile,excelDataRows,ExcelCellLimitError} from "../../../lib/workspace-export";
 import {selectedExportFields,EXPORT_LABELS} from "../../../lib/workspace-export-fields";
 import type {ExportRow} from "../../../lib/workspace-export";
 import type {ExportSnapshot} from "../../../lib/workspace-export";
@@ -12,7 +12,7 @@ import {buildBriefingSnapshot} from "../../../lib/briefing-model";
 export const dynamic="force-dynamic";
 const headers={"Cache-Control":"private, no-store","Vary":"Cookie","X-Content-Type-Options":"nosniff","X-Robots-Tag":"noindex, nofollow"};
 const json=(data:unknown,status=200,extra:Record<string,string>={})=>Response.json(data,{status,headers:{...headers,...extra}});
-function failure(e:unknown){if(e instanceof WorkspaceError)return json({error:e.message},e.status);console.error("workspace operation failed",e instanceof Error?e.message:"unknown");return json({error:"工作台数据暂时无法读取或保存，请稍后重试。"},503);}
+function failure(e:unknown){if(e instanceof WorkspaceError)return json({error:e.message},e.status);if(e instanceof ExcelCellLimitError)return json({error:e.message},400);console.error("workspace operation failed",e instanceof Error?e.message:"unknown");return json({error:"工作台数据暂时无法读取或保存，请稍后重试。"},503);}
 export async function GET(request:Request){try{
  const url=new URL(request.url);
  if(url.searchParams.has("snapshot")){
@@ -56,6 +56,7 @@ export async function POST(request:Request){try{
   for(const f of follows.results)if(!creators.has(f.article_id))creators.set(f.article_id,f.display_name);
  }
  const rows=entries.map(p=>{const a=data.articles.find(a=>a.id===p!.articleId);if(!a)throw new WorkspaceError(409,"原资讯已不可用，请刷新。");const full=exportRow(a,p!,creators.get(p!.articleId)??"");return Object.fromEntries(fields.map(f=>[f,full[f]])) as ExportRow;});
+ if(!pdfOnly)excelDataRows({fields,rows});
  const id=crypto.randomUUID(),now=new Date().toISOString();let briefing;
  if(body.periodStart!==undefined&&typeof body.periodStart!=="string"||body.periodEnd!==undefined&&typeof body.periodEnd!=="string")throw new WorkspaceError(400,"简报日期无效。");
  try{briefing=buildBriefingSnapshot(ids.map(id=>data.articles.find(a=>a.id===id)!),now,{start:body.periodStart,end:body.periodEnd});}catch(e){throw new WorkspaceError(400,e instanceof Error?e.message:"简报日期无效。");}
